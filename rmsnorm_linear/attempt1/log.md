@@ -1,0 +1,1 @@
+- first step is changing it from smem to register MMA
