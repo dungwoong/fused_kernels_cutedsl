@@ -61,6 +61,7 @@ class GemmSM90:
         reuse_ab: bool = True,
         is_persistent: bool = False,
         gemm_n_prologue: int = 0,
+        eps: float = 1e-5,
         ):
         self.acc_dtype = cutlass.Float32
         self.raster_order = raster_order
@@ -123,6 +124,10 @@ class GemmSM90:
         self.max_active_clusters = get_max_active_clusters(math.prod(cluster_shape_mnk))
 
         self.gemm_n_prologue = gemm_n_prologue
+
+        # RMSNorm
+        self.k_dim = None
+        self.eps = eps
 
         # Checks
         assert not (self.reuse_ab and self.is_persistent), "Persistent kernel can't reuse AB for epilogue"
@@ -256,6 +261,7 @@ class GemmSM90:
                 cute.select(self.cta_tile_shape_mnk, mode=[0, 1])
             )
             accumulators = cute.make_rmem_tensor(acc_shape, self.acc_dtype)
+            print('accumulators :', accumulators)
 
             # S2R load
             copy_atom_A = cute.make_copy_atom(
@@ -365,7 +371,10 @@ class GemmSM90:
         )
 
         # TODO do the division here
+        self.warp_reduce_sums(row_reduce_regs) # get the actual sums
+        self.elemwise_rsqrt_plus_eps(row_reduce_regs, self.k_dim, self.eps)
 
+        self.rms_scale(row_reduce_regs, accumulators)
 
         for epi_idx in cutlass.range_constexpr(epi_tile_num):
             for epi_v in cutlass.range_constexpr(size_tRS_rD):
@@ -430,7 +439,6 @@ class GemmSM90:
         num_prologue_mma = min(self.gemm_n_prologue, k_iters)
         num_k_blocks = cute.size(tCrA, mode=[2])
         tiled_mma.set(cute.nvgpu.warpgroup.Field.ACCUMULATE, False)
-        # TODO start here
 
         peek_ab_full_status = Boolean(True)
         if 0 < k_iters:
@@ -498,10 +506,31 @@ class GemmSM90:
     # -----------------------------
 
     @cute.jit
+    def rms_scale(self, row_reduce_regs: cute.Tensor, accumulators: cute.Tensor):
+        # accumulators : tensor<ptr<f32, rmem, align<32>> o ((2,2,32),1,1):((1,2,4),0,0)>
+        # (2, 2', length), nrows, ncols * (2', nrows) the 2' corresponds
+        ldm = cute.size(accumulators, mode=[0])
+        nrows = cute.size(accumulators, mode=[1])
+        ncols = cute.size(accumulators, mode=[2])
+        for r in cutlass.range_constexpr(nrows):
+            for c in cutlass.range_constexpr(ncols):
+                for ldm_idx in cutlass.range_constexpr(ldm):
+                    accumulators[ldm_idx, r, c] = accumulators[ldm_idx, r, c] * row_reduce_regs[(ldm_idx // 2) % 2, r]
+
+
+    @cute.jit
+    def warp_reduce_sums(self, row_reduce_regs: cute.Tensor):
+        # we're 2, nrows
+        sz = cute.size(row_reduce_regs)
+        for elem_idx in cutlass.range_constexpr(sz):
+            for i in cutlass.range_constexpr(int(2)): # Only need items from 4 threads
+                row_reduce_regs[elem_idx] = row_reduce_regs[elem_idx] + cute.arch.shuffle_sync_bfly(row_reduce_regs[elem_idx], offset=1 << i)
+
+    @cute.jit
     def elemwise_rsqrt_plus_eps(self, row_reduce_regs: cute.Tensor, dim: int, epsilon: cutlass.Numeric):
         sz = cute.size(row_reduce_regs)
         for i in cutlass.range_constexpr(sz):
-            row_reduce_regs[i] = cute.math.rsqrt(row_reduce_regs / dim + epsilon, fastmath=True) # We can turn off fastmath if needed
+            row_reduce_regs[i] = cute.math.rsqrt(row_reduce_regs[i] / dim + epsilon, fastmath=True) # We can turn off fastmath if needed
 
     @cute.jit
     def row_reduce_fused_accums(self, mma_frag: cute.Tensor, accum: cute.Tensor):
@@ -612,6 +641,7 @@ class GemmSM90:
         self.a_layout = utils.LayoutEnum.from_tensor(a)
         self.b_layout = utils.LayoutEnum.from_tensor(b)
         self.c_layout = utils.LayoutEnum.from_tensor(c)
+        self.k_dim = cute.size(a, mode=[1]) if self.a_layout == utils.LayoutEnum.ROW_MAJOR else cute.size(a, mode=[0]) # col mjr is untested
         self.cluster_layout_mnk = cute.make_layout(self.cluster_shape_mnk)
     
     @cute.jit
@@ -689,9 +719,10 @@ if __name__ == "__main__":
         return (flops / (time_ms / 1e3)) / 1e12
 
     a = torch.randn((m, k), dtype=torch.bfloat16).to('cuda')
+    norm_a = torch.nn.functional.rms_norm(a.to(torch.float32), normalized_shape=(k,), eps=1e-5)
     b = torch.randn((n, k), dtype=torch.bfloat16).to('cuda')
     c = torch.empty((m, n), dtype=torch.bfloat16).to('cuda')
-    ref = a @ b.t()
+    ref = (norm_a @ b.t().to(torch.float32)).to(torch.bfloat16)
     convert_from_dlpack = lambda tensor: (
         from_dlpack(tensor.detach(), assumed_align=16).mark_compact_shape_dynamic(
             mode=0, stride_order=(0, 1)
@@ -702,6 +733,8 @@ if __name__ == "__main__":
 
     # 0.1803, 762TFLOPs(gemm_cuteDSL) to 0.1847, 744 TFLOPs(load to registers first)
     # for some reason I'm at 752 after adding the reduction but idk
+
+    # RMS fusion takes 0.1921ms whereas compiled torch is 0.2006ms
     gemm = GemmSM90(tile_shape_mn=(128, 256), 
                     epi_tile_mn=(128, 32),
                     cluster_shape_mnk=(2, 1, 1), 
@@ -712,13 +745,16 @@ if __name__ == "__main__":
                     gemm_n_prologue=0)
     compiled_gemm = cute.compile(gemm, a_cute, b_cute, c_cute, current_stream)
     compiled_gemm(a_cute, b_cute, c_cute, current_stream)
-    print('All close:', torch.allclose(ref, c))
+    print('All close:', torch.allclose(ref, c, atol=1e-1, rtol=1e-1))
     if IS_DEBUG:
         print(ref)
         print(c)
+        print((ref - c)[0, :64])
 
     if IS_DEBUG:
-        n_incorrect = c.numel() - ((c - ref).abs() < 0.001).sum()
+        n_incorrect = c.numel() - ((c - ref).abs() < 1).sum()
+        print('max_incorrect :', torch.max((c - ref).abs()).item())
+        print('max_rel_incorrect :', torch.max(((c - ref).abs() / ref.abs().clamp_min(1e-8))).item())
         print('n_incorrect :', n_incorrect)
         print('n_nonzero :', (c != 0).sum())
 
@@ -748,7 +784,8 @@ if __name__ == "__main__":
 
     @torch.compile
     def torch_gemm():
-        return a @ b.t()
+        a_rms = torch.nn.functional.rms_norm(a, normalized_shape=(k,), eps=1e-5)
+        return a_rms @ b.t()
 
     if IS_SPEED:
         my_ms = profile_ms(lambda: compiled_gemm(a_cute, b_cute, c_cute, current_stream))

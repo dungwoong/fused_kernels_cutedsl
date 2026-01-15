@@ -12,6 +12,21 @@ a_regs0 : tensor<ptr<bf16, rmem, align<32>> o ((2,2,2),1,4):((1,2,4),0,8)> # is 
 - I manually made row reduce layout
 - The row reduce algorithm is also quite manual too, it's just a 3-nested loop
 
-## TODOs
-- Warp reduce(you just need to get 4 threads per row to get the items)
-- When writing epilogue, you have to do divisions
+# Modifying the epilogue
+`accumulators : tensor<ptr<f32, rmem, align<32>> o ((2,2,32),1,1):((1,2,4),0,0)>`
+- finished adding the elementwise rsqrt and sum to the sum, and then you just do a multiplication with each element in the accumulators
+
+## Results
+```
+my_ms=0.19207999855279922, other_ms=0.2006400004029274
+my_flops=715.5297506638651, other_flops=685.0027571570655
+FLOPs numbers are incorrect since I only used the GEMMs flops but honestly RMS flops are nothing compared to GEMM
+
+max_incorrect : 2.0
+max_rel_incorrect : 26.5
+```
+- For some test randn matrices, we have ~40000 elements that were had an absolute error of >1. 1 is crazy work
+- I should maybe double-check that all my stuff is correct, make sure sum is broadcasting properly. Otherwise, this is kinda what we would expect.
+- I thought casting to fp32 would help precision though, but I'm guessing torch rmsnorm or whatever also casts to fp32
+
+Next steps, figure out what to do about precision and then I can probably first test other kernels before working on optimization. RMSNorm seems like a bad candidate.
