@@ -30,3 +30,5 @@ max_rel_incorrect : 26.5
 - I thought casting to fp32 would help precision though, but I'm guessing torch rmsnorm or whatever also casts to fp32
 
 Next steps, figure out what to do about precision and then I can probably first test other kernels before working on optimization. RMSNorm seems like a bad candidate.
+
+Also, anything I can do to make my work generalize better since I'm just manually hacking layouts at this point
