@@ -294,7 +294,7 @@ class GemmSM90:
                 ab_consumer_state, tiled_mma = self.consume_mainloop(k_iters, tiled_mma, accumulators, ab_pipeline, ab_consumer_state, tCrA, tCrB, tiled_copy_s2r, s2r_sA, a_regs, a_regs_mma, a_regs_mma_accum, row_reduce_regs)
 
                 # Epilogue ##################################################
-                self.epilogue(tiled_mma, epi_mC, epi_copy, sD, accumulators, tile_coord_mnk, tidx, warp_idx)
+                self.epilogue(tiled_mma, epi_mC, epi_copy, sD, accumulators, tile_coord_mnk, tidx, warp_idx, row_reduce_regs)
 
                 # NOTE no need to fetch_next_work, that's done by the producer
                 tile_scheduler.advance_to_next_work()
@@ -305,7 +305,7 @@ class GemmSM90:
     # Main stuff
     # -----------------------------
     @cute.jit
-    def epilogue(self, tiled_mma, epi_mC, epi_copy, sD, accumulators, tile_coord_mnk, tidx, warp_idx):
+    def epilogue(self, tiled_mma, epi_mC, epi_copy, sD, accumulators, tile_coord_mnk, tidx, warp_idx, row_reduce_regs):
         # NOTE other gemm examples do a cluster arrive/wait, not sure why
         # We use a NamedBarrier since we can't syncthreads(only want to sync consumers)
         epilogue_barrier = pipeline.NamedBarrier(
@@ -364,9 +364,13 @@ class GemmSM90:
             producer_group=c_producer_group,
         )
 
+        # TODO do the division here
+
+
         for epi_idx in cutlass.range_constexpr(epi_tile_num):
             for epi_v in cutlass.range_constexpr(size_tRS_rD):
                 # Take a slice of the accumulators
+                # TODO we could try applying the RMS here, then we're overlapping math, stores and TMA stores
                 tRS_rD[epi_v] = tRS_rAcc[epi_idx * size_tRS_rD + epi_v]
             
             # Type conversion
@@ -456,9 +460,7 @@ class GemmSM90:
         for k_tile in cutlass.range(0, k_iters, unroll=1, unroll_full=False):
             pipe.consumer_wait(read_state, peek_ab_full_status)
             cute.copy(tiled_copy_s2r, s2r_sA[None, None, None, read_state.index], a_regs[None, None, None])
-
-            self.row_reduce_fused_accums(a_regs_mma, row_reduce_regs)
-            # print0(row_reduce_regs) # ok this works
+            
             cute.nvgpu.warpgroup.fence()
             for k_block_idx in cutlass.range(num_k_blocks, unroll_full=True):
                 k_block_coord = (None, None, k_block_idx, read_state.index)
@@ -473,6 +475,10 @@ class GemmSM90:
                 )
                 tiled_mma.set(cute.nvgpu.warpgroup.Field.ACCUMULATE, True)
             cute.nvgpu.warpgroup.commit_group()
+
+            # After dispatching the WGMMA, we can do some accumulation maybe?
+            self.row_reduce_fused_accums(a_regs_mma, row_reduce_regs) # rowsum(x^2)
+
             cute.nvgpu.warpgroup.wait_group(self.gemm_n_prologue)
             pipe.consumer_release(release_state)
             read_state.advance()
@@ -490,6 +496,13 @@ class GemmSM90:
 
     # Row Reduce stuff
     # -----------------------------
+
+    @cute.jit
+    def elemwise_rsqrt_plus_eps(self, row_reduce_regs: cute.Tensor, dim: int, epsilon: cutlass.Numeric):
+        sz = cute.size(row_reduce_regs)
+        for i in cutlass.range_constexpr(sz):
+            row_reduce_regs[i] = cute.math.rsqrt(row_reduce_regs / dim + epsilon, fastmath=True) # We can turn off fastmath if needed
+
     @cute.jit
     def row_reduce_fused_accums(self, mma_frag: cute.Tensor, accum: cute.Tensor):
         # indices 1-8, divide by 2 and then mod 2
