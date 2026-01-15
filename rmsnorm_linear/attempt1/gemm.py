@@ -271,7 +271,9 @@ class GemmSM90:
             s2r_r_shape = tiled_mma.partition_shape_A(
                 cute.select(self.cta_tile_shape_mnk, mode=[0, 2])
             )
-            a_regs = cute.make_rmem_tensor(s2r_r_shape, self.a_dtype)
+            a_regs_mma = cute.make_rmem_tensor(s2r_r_shape, self.a_dtype)
+            a_regs = thr_copy_s2r.retile(a_regs_mma) # retiling is important!
+            # plan: pass in a_regs0 then retile it to a_regs, and then copy and use a_regs0 for the mma since it's in the right layout(?)
 
             work_tile = tile_scheduler.initial_work_tile_info()
             while work_tile.is_valid_tile:
@@ -282,7 +284,7 @@ class GemmSM90:
                 # You have to return this, it doesn't let you modify a var inside a diff scope
                 # SSA -- modifying a value means reassigning it, so you can't go into this fn scope and only modify the value there
                 # you have to return it
-                ab_consumer_state, tiled_mma = self.consume_mainloop(k_iters, tiled_mma, accumulators, ab_pipeline, ab_consumer_state, tCrA, tCrB, tidx)
+                ab_consumer_state, tiled_mma = self.consume_mainloop(k_iters, tiled_mma, accumulators, ab_pipeline, ab_consumer_state, tCrA, tCrB, tiled_copy_s2r, s2r_sA, a_regs, a_regs_mma)
 
                 # Epilogue ##################################################
                 self.epilogue(tiled_mma, epi_mC, epi_copy, sD, accumulators, tile_coord_mnk, tidx, warp_idx)
@@ -412,7 +414,7 @@ class GemmSM90:
         return state
 
     @cute.jit
-    def consume_mainloop(self, k_iters: Int32, tiled_mma: cute.TiledMma, accumulators: cute.Tensor, pipe: pipeline.PipelineAsync, read_state: pipeline.PipelineState, tCrA: cute.Tensor, tCrB: cute.Tensor, tidx: int):
+    def consume_mainloop(self, k_iters: Int32, tiled_mma: cute.TiledMma, accumulators: cute.Tensor, pipe: pipeline.PipelineAsync, read_state: pipeline.PipelineState, tCrA: cute.Tensor, tCrB: cute.Tensor, tiled_copy_s2r: cute.CopyAtom, s2r_sA: cute.Tensor, a_regs: cute.Tensor, a_regs_mma: cute.Tensor):
         release_state = read_state.clone() # NOTE: read is where we are reading from, release is when we are finished with the tile
         num_prologue_mma = min(self.gemm_n_prologue, k_iters)
         num_k_blocks = cute.size(tCrA, mode=[2])
@@ -423,33 +425,34 @@ class GemmSM90:
         if 0 < k_iters:
             peek_ab_full_status = pipe.consumer_try_wait(read_state)
         
-        for k_tile in cutlass.range(num_prologue_mma):
-            pipe.consumer_wait(read_state, peek_ab_full_status)
-            cute.nvgpu.warpgroup.fence()
-            for k_block_idx in cutlass.range(num_k_blocks, unroll_full=True):
-                k_block_coord = (None, None, k_block_idx, read_state.index)
-                tCrA_1phase = tCrA[k_block_coord]
-                tCrB_1phase = tCrB[k_block_coord]
-                cute.gemm(
-                    tiled_mma,
-                    accumulators,
-                    tCrA_1phase,
-                    tCrB_1phase,
-                    accumulators
-                )
-                tiled_mma.set(cute.nvgpu.warpgroup.Field.ACCUMULATE, True)
-            cute.nvgpu.warpgroup.commit_group()
-            read_state.advance()
-            peek_ab_full_status = Boolean(True)
-            if k_tile + 1 < k_iters:
-                peek_ab_full_status = pipe.consumer_try_wait(read_state)
+        # for k_tile in cutlass.range(num_prologue_mma):
+        #     pipe.consumer_wait(read_state, peek_ab_full_status)
+        #     cute.nvgpu.warpgroup.fence()
+        #     for k_block_idx in cutlass.range(num_k_blocks, unroll_full=True):
+        #         k_block_coord = (None, None, k_block_idx, read_state.index)
+        #         tCrA_1phase = tCrA[k_block_coord]
+        #         tCrB_1phase = tCrB[k_block_coord]
+        #         cute.gemm(
+        #             tiled_mma,
+        #             accumulators,
+        #             tCrA_1phase,
+        #             tCrB_1phase,
+        #             accumulators
+        #         )
+        #         tiled_mma.set(cute.nvgpu.warpgroup.Field.ACCUMULATE, True)
+        #     cute.nvgpu.warpgroup.commit_group()
+        #     read_state.advance()
+        #     peek_ab_full_status = Boolean(True)
+        #     if k_tile + 1 < k_iters:
+        #         peek_ab_full_status = pipe.consumer_try_wait(read_state)
 
-        for k_tile in cutlass.range(num_prologue_mma, k_iters, unroll=1, unroll_full=False):
+        for k_tile in cutlass.range(0, k_iters, unroll=1, unroll_full=False):
             pipe.consumer_wait(read_state, peek_ab_full_status)
+            cute.copy(tiled_copy_s2r, s2r_sA[None, None, None, read_state.index], a_regs[None, None, None])
             cute.nvgpu.warpgroup.fence()
             for k_block_idx in cutlass.range(num_k_blocks, unroll_full=True):
                 k_block_coord = (None, None, k_block_idx, read_state.index)
-                tCrA_1phase = tCrA[k_block_coord]
+                tCrA_1phase = a_regs_mma[None, None, k_block_idx]
                 tCrB_1phase = tCrB[k_block_coord]
                 cute.gemm(
                     tiled_mma,
@@ -469,10 +472,10 @@ class GemmSM90:
             if k_tile + 1 < k_iters:
                 peek_ab_full_status = pipe.consumer_try_wait(read_state)
         
-        cute.nvgpu.warpgroup.wait_group(0)
-        for k_tile in cutlass.range(num_prologue_mma, unroll=1):
-            pipe.consumer_release(release_state)
-            release_state.advance()
+        # cute.nvgpu.warpgroup.wait_group(0)
+        # for k_tile in cutlass.range(num_prologue_mma, unroll=1):
+        #     pipe.consumer_release(release_state)
+        #     release_state.advance()
         return read_state, tiled_mma
 
     # More runtime stuff
@@ -576,7 +579,8 @@ class GemmSM90:
             self.b_layout.sm90_mma_major_mode(),
             self.acc_dtype,
             self.atom_layout_mnk,
-            tiler_mn=(64, self.cta_tile_shape_mnk[1] // self.atom_layout_mnk[1])
+            tiler_mn=(64, self.cta_tile_shape_mnk[1] // self.atom_layout_mnk[1]),
+            a_source=cute.nvgpu.warpgroup.OperandSource.RMEM,
         )
         mma_k = 16
         mma_inst_tile_k = 4
@@ -651,13 +655,16 @@ if __name__ == "__main__":
     )
     a_cute, b_cute, c_cute = [convert_from_dlpack(x) for x in (a, b, c)]
     current_stream = cuda.CUstream(torch.cuda.current_stream().cuda_stream)
+
+    # 0.1803, 762TFLOPs(gemm_cuteDSL) to 0.1847, 744 TFLOPs(load to registers first) 
     gemm = GemmSM90(tile_shape_mn=(128, 256), 
                     epi_tile_mn=(128, 32),
                     cluster_shape_mnk=(2, 1, 1), 
                     atom_layout_mn=(2, 1),
                     ab_stage=3,
-                    reuse_ab=True,
-                    is_persistent=False)
+                    reuse_ab=False,
+                    is_persistent=True,
+                    gemm_n_prologue=0)
     compiled_gemm = cute.compile(gemm, a_cute, b_cute, c_cute, current_stream)
     compiled_gemm(a_cute, b_cute, c_cute, current_stream)
     print('All close:', torch.allclose(ref, c))
