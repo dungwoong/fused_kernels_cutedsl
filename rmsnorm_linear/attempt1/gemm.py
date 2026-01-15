@@ -273,6 +273,11 @@ class GemmSM90:
             )
             a_regs_mma = cute.make_rmem_tensor(s2r_r_shape, self.a_dtype)
             a_regs = thr_copy_s2r.retile(a_regs_mma) # retiling is important!
+
+            # Sum reduction
+            row_reduce_regs = cute.make_rmem_tensor(self.row_reduce_layout(a_regs_mma.layout)) # (2, nrows/16)
+            row_reduce_regs.fill(0)
+            
             # plan: pass in a_regs0 then retile it to a_regs, and then copy and use a_regs0 for the mma since it's in the right layout(?)
 
             work_tile = tile_scheduler.initial_work_tile_info()
@@ -284,7 +289,7 @@ class GemmSM90:
                 # You have to return this, it doesn't let you modify a var inside a diff scope
                 # SSA -- modifying a value means reassigning it, so you can't go into this fn scope and only modify the value there
                 # you have to return it
-                ab_consumer_state, tiled_mma = self.consume_mainloop(k_iters, tiled_mma, accumulators, ab_pipeline, ab_consumer_state, tCrA, tCrB, tiled_copy_s2r, s2r_sA, a_regs, a_regs_mma)
+                ab_consumer_state, tiled_mma = self.consume_mainloop(k_iters, tiled_mma, accumulators, ab_pipeline, ab_consumer_state, tCrA, tCrB, tiled_copy_s2r, s2r_sA, a_regs, a_regs_mma, row_reduce_regs)
 
                 # Epilogue ##################################################
                 self.epilogue(tiled_mma, epi_mC, epi_copy, sD, accumulators, tile_coord_mnk, tidx, warp_idx)
@@ -414,7 +419,7 @@ class GemmSM90:
         return state
 
     @cute.jit
-    def consume_mainloop(self, k_iters: Int32, tiled_mma: cute.TiledMma, accumulators: cute.Tensor, pipe: pipeline.PipelineAsync, read_state: pipeline.PipelineState, tCrA: cute.Tensor, tCrB: cute.Tensor, tiled_copy_s2r: cute.CopyAtom, s2r_sA: cute.Tensor, a_regs: cute.Tensor, a_regs_mma: cute.Tensor):
+    def consume_mainloop(self, k_iters: Int32, tiled_mma: cute.TiledMma, accumulators: cute.Tensor, pipe: pipeline.PipelineAsync, read_state: pipeline.PipelineState, tCrA: cute.Tensor, tCrB: cute.Tensor, tiled_copy_s2r: cute.CopyAtom, s2r_sA: cute.Tensor, a_regs: cute.Tensor, a_regs_mma: cute.Tensor, row_reduce_regs: cute.Tensor):
         release_state = read_state.clone() # NOTE: read is where we are reading from, release is when we are finished with the tile
         num_prologue_mma = min(self.gemm_n_prologue, k_iters)
         num_k_blocks = cute.size(tCrA, mode=[2])
@@ -449,6 +454,8 @@ class GemmSM90:
         for k_tile in cutlass.range(0, k_iters, unroll=1, unroll_full=False):
             pipe.consumer_wait(read_state, peek_ab_full_status)
             cute.copy(tiled_copy_s2r, s2r_sA[None, None, None, read_state.index], a_regs[None, None, None])
+
+            self.row_reduce_fused_accums(a_regs_mma, row_reduce_regs)
             cute.nvgpu.warpgroup.fence()
             for k_block_idx in cutlass.range(num_k_blocks, unroll_full=True):
                 k_block_coord = (None, None, k_block_idx, read_state.index)
@@ -477,6 +484,26 @@ class GemmSM90:
         #     pipe.consumer_release(release_state)
         #     release_state.advance()
         return read_state, tiled_mma
+
+    # Row Reduce stuff
+    # -----------------------------
+    @cute.jit
+    def row_reduce_fused_accums(self, mma_frag: cute.Tensor, accum: cute.Tensor):
+        # indices 1-8, divide by 2 and then mod 2
+        # mma_frag must be rank 3
+        ldm = cute.size(mma_frag, mode=[0])
+        nrows = cute.size(mma_frag, mode=[1])
+        ncols = cute.size(mma_frag, mode=[2])
+        for r in cutlass.range_constexpr(nrows):
+            for c in cutlass.range_constexpr(ncols):
+                for ldm_idx in cutlass.range_constexpr(ldm):
+                    tmp = mma_frag[ldm_idx, r, c] * mma_frag[ldm_idx, r, c]
+                    accum[(ldm_idx // 2) % 2, r] += tmp
+
+    def row_reduce_layout(self, mma_frag_layout: cute.Layout):
+        # mma fragment is ((2, 2, 2), nrows, ncols), so we want (2, nrows) so we can reduce across cols
+        l = mma_frag_layout
+        return cute.make_layout((2, l.shape[1]))
 
     # More runtime stuff
     # -----------------------------
