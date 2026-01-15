@@ -275,7 +275,9 @@ class GemmSM90:
             a_regs = thr_copy_s2r.retile(a_regs_mma) # retiling is important!
 
             # Sum reduction
-            row_reduce_regs = cute.make_rmem_tensor(self.row_reduce_layout(a_regs_mma.layout)) # (2, nrows/16)
+            # the sum works but need to cast
+            a_regs_mma_accum = cute.make_rmem_tensor_like(a_regs_mma.layout, self.acc_dtype)
+            row_reduce_regs = cute.make_rmem_tensor(self.row_reduce_layout(a_regs_mma.layout), self.acc_dtype) # (2, nrows/16)
             row_reduce_regs.fill(0)
             
             # plan: pass in a_regs0 then retile it to a_regs, and then copy and use a_regs0 for the mma since it's in the right layout(?)
@@ -289,7 +291,7 @@ class GemmSM90:
                 # You have to return this, it doesn't let you modify a var inside a diff scope
                 # SSA -- modifying a value means reassigning it, so you can't go into this fn scope and only modify the value there
                 # you have to return it
-                ab_consumer_state, tiled_mma = self.consume_mainloop(k_iters, tiled_mma, accumulators, ab_pipeline, ab_consumer_state, tCrA, tCrB, tiled_copy_s2r, s2r_sA, a_regs, a_regs_mma, row_reduce_regs)
+                ab_consumer_state, tiled_mma = self.consume_mainloop(k_iters, tiled_mma, accumulators, ab_pipeline, ab_consumer_state, tCrA, tCrB, tiled_copy_s2r, s2r_sA, a_regs, a_regs_mma, a_regs_mma_accum, row_reduce_regs)
 
                 # Epilogue ##################################################
                 self.epilogue(tiled_mma, epi_mC, epi_copy, sD, accumulators, tile_coord_mnk, tidx, warp_idx)
@@ -419,7 +421,7 @@ class GemmSM90:
         return state
 
     @cute.jit
-    def consume_mainloop(self, k_iters: Int32, tiled_mma: cute.TiledMma, accumulators: cute.Tensor, pipe: pipeline.PipelineAsync, read_state: pipeline.PipelineState, tCrA: cute.Tensor, tCrB: cute.Tensor, tiled_copy_s2r: cute.CopyAtom, s2r_sA: cute.Tensor, a_regs: cute.Tensor, a_regs_mma: cute.Tensor, row_reduce_regs: cute.Tensor):
+    def consume_mainloop(self, k_iters: Int32, tiled_mma: cute.TiledMma, accumulators: cute.Tensor, pipe: pipeline.PipelineAsync, read_state: pipeline.PipelineState, tCrA: cute.Tensor, tCrB: cute.Tensor, tiled_copy_s2r: cute.CopyAtom, s2r_sA: cute.Tensor, a_regs: cute.Tensor, a_regs_mma: cute.Tensor, a_regs_mma_accum: cute.Tensor, row_reduce_regs: cute.Tensor):
         release_state = read_state.clone() # NOTE: read is where we are reading from, release is when we are finished with the tile
         num_prologue_mma = min(self.gemm_n_prologue, k_iters)
         num_k_blocks = cute.size(tCrA, mode=[2])
@@ -456,6 +458,7 @@ class GemmSM90:
             cute.copy(tiled_copy_s2r, s2r_sA[None, None, None, read_state.index], a_regs[None, None, None])
 
             self.row_reduce_fused_accums(a_regs_mma, row_reduce_regs)
+            # print0(row_reduce_regs) # ok this works
             cute.nvgpu.warpgroup.fence()
             for k_block_idx in cutlass.range(num_k_blocks, unroll_full=True):
                 k_block_coord = (None, None, k_block_idx, read_state.index)
@@ -497,7 +500,8 @@ class GemmSM90:
         for r in cutlass.range_constexpr(nrows):
             for c in cutlass.range_constexpr(ncols):
                 for ldm_idx in cutlass.range_constexpr(ldm):
-                    tmp = mma_frag[ldm_idx, r, c] * mma_frag[ldm_idx, r, c]
+                    casted = mma_frag[ldm_idx, r, c].to(self.acc_dtype)
+                    tmp = casted * casted
                     accum[(ldm_idx // 2) % 2, r] += tmp
 
     def row_reduce_layout(self, mma_frag_layout: cute.Layout):
@@ -683,7 +687,8 @@ if __name__ == "__main__":
     a_cute, b_cute, c_cute = [convert_from_dlpack(x) for x in (a, b, c)]
     current_stream = cuda.CUstream(torch.cuda.current_stream().cuda_stream)
 
-    # 0.1803, 762TFLOPs(gemm_cuteDSL) to 0.1847, 744 TFLOPs(load to registers first) 
+    # 0.1803, 762TFLOPs(gemm_cuteDSL) to 0.1847, 744 TFLOPs(load to registers first)
+    # for some reason I'm at 752 after adding the reduction but idk
     gemm = GemmSM90(tile_shape_mn=(128, 256), 
                     epi_tile_mn=(128, 32),
                     cluster_shape_mnk=(2, 1, 1), 
