@@ -1,6 +1,5 @@
 import argparse
 from typing import Callable, Tuple, Type
-import math
 import cuda.bindings.driver as cuda
 
 import torch
@@ -19,10 +18,13 @@ import cutlass.torch as cutlass_torch
 from cutlass.cute.runtime import from_dlpack
 import cutlass.utils.hopper_helpers as sm90_utils
 
+from pipeline import PipelineTmaAsync
+
 from tile_scheduler import SingleTileScheduler, TileSchedulerArguments
 from cute_dsl_utils import ParamsBase
 from functools import partial
 import my_utils
+import math
 
 THREADS_PER_WG = 128
 
@@ -107,7 +109,7 @@ class FlashSM90:
         tiled_mma_qk, tiled_mma_pv = self._get_tiled_mma()
         self.num_mma_threads = tiled_mma_qk.size
         self.num_mma_warpgroups = self.num_mma_threads / THREADS_PER_WG
-        self.num_threads = THREADS_PER_WG * (self.num_mma_warpgroups + 1)
+        self.num_threads = int((self.num_mma_warpgroups + 1) * THREADS_PER_WG)
 
         assert self.num_mma_warpgroups in (1, 2, 3)
 
@@ -134,21 +136,24 @@ class FlashSM90:
             cute.size(mQ.shape[3]),
         )
         tile_sched_params = SingleTileScheduler.to_underlying_arguments(tile_sched_args)
-        grid_dim = SingleTileScheduler.get_grid_shape()
-        LOG2_E = math.log2(math.e) # I think we can multiply by 1/sqrt(d) here too
+        grid_dim = SingleTileScheduler.get_grid_shape(tile_sched_params)
+        # LOG2_E = math.log2(math.e) # I think we can multiply by 1/sqrt(d) here too
 
         # we should be ready to do the kernel now
-        self.kernel(tma_tensor_q, tma_tensor_k, tma_tensor_v, tma_tensor_o, tma_atom_q, SingleTileScheduler, tile_sched_params).launch(grid=grid_dim, block=[self.num_threads, 1, 1], stream=stream)
+        print("launching kernel")
+        self.kernel(tma_tensor_q, tma_tensor_k, tma_tensor_v, tma_tensor_o, tma_atom_q, self.sQ_layout, SingleTileScheduler, tile_sched_params).launch(grid=grid_dim, block=[self.num_threads, 1, 1], stream=stream)
     
-    def kernel(self, mQ: cute.Tensor, mK: cute.Tensor, mV: cute.Tensor, mO: cute.Tensor, tma_q: cute.CopyAtom, TileScheduler: cutlass.Constexpr[Callable], tile_sched_params: ParamsBase):
+    @cute.kernel
+    def kernel(self, mQ: cute.Tensor, mK: cute.Tensor, mV: cute.Tensor, mO: cute.Tensor, tma_atom_q: cute.CopyAtom, sQ_layout: cute.ComposedLayout, TileScheduler: cutlass.Constexpr[Callable], tile_sched_params: ParamsBase):
         """
         First wg(0-4) --> producer
         other wg --> consumer
         """
+        print0("entered kernel")
         warp_idx = cute.arch.make_warp_uniform(cute.arch.warp_idx())
 
         if warp_idx == 0:
-            for tma_atom in (tma_q,):
+            for tma_atom in (tma_atom_q,):
                 # if const_expr(tma_atom is not None)
                 cute.nvgpu.cpasync.prefetch_descriptor(tma_atom)
         
@@ -158,7 +163,7 @@ class FlashSM90:
         mbar_Q = storage.mbar_qo.data_ptr() # TODO need to init?
         pipeline_kv_producer_group = pipeline.CooperativeGroup(pipeline.Agent.Thread, size=1)
         pipeline_kv_consumer_group = pipeline.CooperativeGroup(pipeline.Agent.Thread, self.num_mma_threads // cute.arch.WARP_SIZE)
-        pipeline_k = pipeline.PipelineTmaAsync.create(
+        pipeline_k = PipelineTmaAsync.create(
             barrier_storage=storage.mbar_k.data_ptr(),
             num_stages=self.num_stages,
             producer_group=pipeline_kv_producer_group,
@@ -167,18 +172,20 @@ class FlashSM90:
             defer_sync=True,
         )
 
-        sQ = storage.sQ.get_tensor(self.sQ_layout.outer, swizzle=self.sQ_layout.inner)
+        sQ = storage.sQ.get_tensor(sQ_layout.outer, swizzle=sQ_layout.inner)
         # need to know how many blocks to iterate through here
 
         TileSchedulerCls = partial(TileScheduler.create, tile_sched_params)
 
+        print0("at branching")
         if warp_idx < 4:
             cute.arch.warpgroup_reg_dealloc(self.num_producer_regs)
-            self.load()
+            self.load(mQ, sQ, tma_atom_q, pipeline_k, TileSchedulerCls)
         else:
             cute.arch.warpgroup_reg_alloc(self.num_mma_regs)
-            self.mma()
+            self.mma(pipeline_k)
     
+    @cute.jit
     def load(self, mQ: cute.Tensor, sQ: cute.Tensor, tma_atom_q: cute.CopyAtom, pipeline_k: pipeline.PipelineAsync, TileSchedulerCls: Callable):
         warp_idx_in_wg = cute.arch.make_warp_uniform(cute.arch.warp_idx()) % 4
         if warp_idx_in_wg == 0:
@@ -187,8 +194,9 @@ class FlashSM90:
             work_tile = tile_scheduler.initial_work_tile_info()
 
             m_block, head_idx, batch_idx = work_tile.tile_idx
-            
-            gQ = cute.local_tile(mQ, (self.tile_m, self.hdimk), (m_block, 0))
+            mQ_curr = mQ[None, None, head_idx, batch_idx]
+
+            gQ = cute.local_tile(mQ_curr, (self.tile_m, self.hdimk), (m_block, 0))
             load_Q, _, _ = my_utils.tma_get_copy_fn(
                 tma_atom_q, 0, cute.make_layout(1), gQ, sQ, single_stage=True
             )
@@ -200,9 +208,10 @@ class FlashSM90:
             )
             load_Q(tma_bar_ptr=pipeline_k.producer_get_barrier(kv_producer_state))
     
+    @cute.jit
     def mma(self, pipeline_k: pipeline.PipelineAsync):
         kv_consumer_state = pipeline.make_pipeline_state(pipeline.PipelineUserType.Consumer, self.num_stages)
-        pipeline_k.consumer_wait(kv_consumer_state)
+        # pipeline_k.consumer_wait(kv_consumer_state)
 
         
         
@@ -337,5 +346,5 @@ if __name__ == "__main__":
     [q_cute, k_cute, v_cute, o_cute] = [convert_from_dlpack(x) for x in (q, k, v, o)]
     current_stream = cuda.CUstream(torch.cuda.current_stream().cuda_stream)
 
-    fa = FlashSM90(dtype=cutlass.BFloat16)
+    fa = FlashSM90(dtype=cutlass.BFloat16, qk_mn=(128, 256), cluster_size_m=1)
     fa(q_cute, k_cute, v_cute, o_cute, current_stream)

@@ -21,6 +21,7 @@ Clusters are always (m, n). Cluster coords are also M, N but rasterization dicta
 def get_max_active_clusters(cluster_size):
     return cutlass.utils.HardwareInfo().get_max_active_clusters(cluster_size=cluster_size)
 
+@dataclass
 class TileSchedulerArguments(ParamsBase):
     num_block: Int32
     num_head: Int32

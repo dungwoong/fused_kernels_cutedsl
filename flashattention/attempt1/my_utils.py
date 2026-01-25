@@ -29,8 +29,8 @@ def tma_get_copy_fn(
         atom,
         cta_coord,
         cta_layout,
-        cute.group_modes(smem_tensor, 0, cute.rank(smem_tensor) - 1),
-        cute.group_modes(gmem_tensor, 0, cute.rank(gmem_tensor) - 1),
+        cute.group_modes(smem_tensor, 0, cute.rank(smem_tensor) - (1 if not single_stage else 0)),
+        cute.group_modes(gmem_tensor, 0, cute.rank(gmem_tensor) - (1 if not single_stage else 0)),
     )
     src, dst = (s, g) if src_is_smem else (g, s)
 
@@ -39,7 +39,7 @@ def tma_get_copy_fn(
     
     def copy_tma_single_stage(**kwargs2):
         cute.copy(atom, src, dst, **kwargs, **kwargs2)
-    return (copy_tma if cute.const_expr(not single_stage) else copy_tma_single_stage), s, g
+    return (copy_tma if not single_stage else copy_tma_single_stage), s, g
 
 
 @dsl_user_op
