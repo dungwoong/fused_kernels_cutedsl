@@ -125,6 +125,7 @@ class FlashSM90:
          tma_atom_k, tma_tensor_k, 
          tma_atom_v, tma_tensor_v, 
          tma_atom_o, tma_tensor_o) = self._get_tma_copy_attrs(mQ, mK, mV, mO)
+        n_block_max = cute.ceil_div(cute.size(mK, mode=[0]), self.tile_n)
         
         # BlockInfo tells each block where to start/stop iterating, but we'll skip it since we're doing full non-causal attention
         # they also have seqlen to store seqlen info, no clue what that is w.r.t. lol but it loads everything once instead of over+over
@@ -141,10 +142,14 @@ class FlashSM90:
 
         # we should be ready to do the kernel now
         print("launching kernel")
-        self.kernel(tma_tensor_q, tma_tensor_k, tma_tensor_v, tma_tensor_o, tma_atom_q, self.sQ_layout, SingleTileScheduler, tile_sched_params).launch(grid=grid_dim, block=[self.num_threads, 1, 1], stream=stream)
+        self.kernel(tma_tensor_q, tma_tensor_k, tma_tensor_v, tma_tensor_o, tma_atom_q, tma_atom_k, tma_atom_v, self.sQ_layout, self.sK_layout, self.sV_layout, n_block_max, SingleTileScheduler, tile_sched_params).launch(grid=grid_dim, block=[self.num_threads, 1, 1], stream=stream)
     
     @cute.kernel
-    def kernel(self, mQ: cute.Tensor, mK: cute.Tensor, mV: cute.Tensor, mO: cute.Tensor, tma_atom_q: cute.CopyAtom, sQ_layout: cute.ComposedLayout, TileScheduler: cutlass.Constexpr[Callable], tile_sched_params: ParamsBase):
+    def kernel(self, mQ: cute.Tensor, mK: cute.Tensor, mV: cute.Tensor, mO: cute.Tensor, 
+               tma_atom_q: cute.CopyAtom, tma_atom_k: cute.CopyAtom, tma_atom_v: cute.CopyAtom,
+               sQ_layout: cute.ComposedLayout, sK_layout: cute.ComposedLayout, sV_layout: cute.ComposedLayout,
+               n_block_max: int,
+               TileScheduler: cutlass.Constexpr[Callable], tile_sched_params: ParamsBase):
         """
         First wg(0-4) --> producer
         other wg --> consumer
@@ -171,8 +176,19 @@ class FlashSM90:
             tx_count=0, # should add tma copy bytes [k]
             defer_sync=True,
         )
+        pipeline_v = PipelineTmaAsync.create(
+            barrier_storage=storage.mbar_v.data_ptr(),
+            num_stages=self.num_stages,
+            producer_group=pipeline_kv_producer_group,
+            consumer_group=pipeline_kv_consumer_group,
+            tx_count=0,
+            defer_sync=True,
+        )
 
         sQ = storage.sQ.get_tensor(sQ_layout.outer, swizzle=sQ_layout.inner)
+        sK = storage.sK.get_tensor(sK_layout.outer, swizzle=sK_layout.inner)
+        sV = storage.sV.get_tensor(sV_layout.outer, swizzle=sV_layout.inner)
+        # 1667 they have utils.transpose_view(sV) for the MMA
         # need to know how many blocks to iterate through here
 
         TileSchedulerCls = partial(TileScheduler.create, tile_sched_params)
@@ -180,13 +196,21 @@ class FlashSM90:
         print0("at branching")
         if warp_idx < 4:
             cute.arch.warpgroup_reg_dealloc(self.num_producer_regs)
-            self.load(mQ, sQ, tma_atom_q, pipeline_k, TileSchedulerCls)
+            self.load(
+                mQ, mK, mV, 
+                sQ, sK, sV, 
+                tma_atom_q, tma_atom_k, tma_atom_v, 
+                pipeline_k, pipeline_v, 
+                n_block_max, TileSchedulerCls)
         else:
             cute.arch.warpgroup_reg_alloc(self.num_mma_regs)
-            self.mma(pipeline_k)
+            self.mma(n_block_max, pipeline_k, pipeline_v)
     
     @cute.jit
-    def load(self, mQ: cute.Tensor, sQ: cute.Tensor, tma_atom_q: cute.CopyAtom, pipeline_k: pipeline.PipelineAsync, TileSchedulerCls: Callable):
+    def load(self, mQ: cute.Tensor, mK: cute.Tensor, mV: cute.Tensor, 
+             sQ: cute.Tensor, sK: cute.Tensor, sV: cute.Tensor, 
+             tma_atom_q: cute.CopyAtom, tma_atom_k: cute.CopyAtom, tma_atom_v: cute.CopyAtom, 
+             pipeline_k: pipeline.PipelineAsync, pipeline_v: pipeline.PipelineAsync, n_block_max: int, TileSchedulerCls: Callable):
         warp_idx_in_wg = cute.arch.make_warp_uniform(cute.arch.warp_idx()) % 4
         if warp_idx_in_wg == 0:
             kv_producer_state = pipeline.make_pipeline_state(pipeline.PipelineUserType.Producer, self.num_stages)
@@ -195,23 +219,58 @@ class FlashSM90:
 
             m_block, head_idx, batch_idx = work_tile.tile_idx
             mQ_curr = mQ[None, None, head_idx, batch_idx]
+            mK_curr = mK[None, None, head_idx, batch_idx]
+            mV_curr = mV[None, None, head_idx, batch_idx]
 
             gQ = cute.local_tile(mQ_curr, (self.tile_m, self.hdimk), (m_block, 0))
+            gK = cute.local_tile(mK_curr, (self.tile_n, self.hdimk), (None, 0))
+            gV = cute.local_tile(mV_curr, (self.tile_n, self.hdimv), (None, 0))
+            
             load_Q, _, _ = my_utils.tma_get_copy_fn(
                 tma_atom_q, 0, cute.make_layout(1), gQ, sQ, single_stage=True
             )
 
+            load_K, _, _ = my_utils.tma_get_copy_fn(
+                tma_atom_k, 0, cute.make_layout(1), gK, sK, 
+            )
+
+            load_V, _, _ = my_utils.tma_get_copy_fn(
+                tma_atom_v, 0, cute.make_layout(1), gV, sV,
+            )
+
             # 1824: First pipeline K, just add Q in there
+            n_block = n_block_max - 1
             pipeline_k.producer_acquire(
                 kv_producer_state,
                 extra_tx_count=self.tma_copy_bytes["Q"]
             )
             load_Q(tma_bar_ptr=pipeline_k.producer_get_barrier(kv_producer_state))
+            load_K(n_block, kv_producer_state.index, tma_bar_ptr=pipeline_k.producer_get_barrier(kv_producer_state))
+
+            pipeline_v.producer_acquire(kv_producer_state)
+            load_V(n_block, kv_producer_state.index, tma_bar_ptr=pipeline_v.producer_get_barrier(kv_producer_state))
+            kv_producer_state.advance()
+
+            # this is no intra wg overlap
+            for i in cutlass.range(n_block_max - 1, unroll=1):
+                n_block = n_block_max - 2 - i
+                pipeline_k.producer_acquire(kv_producer_state)
+                load_K(n_block, kv_producer_state.index, tma_bar_ptr=pipeline_k.producer_get_barrier(kv_producer_state))
+                pipeline_v.producer_acquire(kv_producer_state)
+                load_V(n_block, kv_producer_state.index, tma_bar_ptr=pipeline_v.producer_get_barrier(kv_producer_state))
+                kv_producer_state.advance()
     
     @cute.jit
-    def mma(self, pipeline_k: pipeline.PipelineAsync):
+    def mma(self, n_block_max: int, pipeline_k: pipeline.PipelineAsync, pipeline_v: pipeline.PipelineAsync):
         kv_consumer_state = pipeline.make_pipeline_state(pipeline.PipelineUserType.Consumer, self.num_stages)
         # pipeline_k.consumer_wait(kv_consumer_state)
+        for n_tile in cutlass.range(n_block_max, unroll=1):
+            pipeline_k.consumer_wait(kv_consumer_state)
+            # Qk stuff
+            pipeline_k.consumer_release(kv_consumer_state)
+            pipeline_v.consumer_wait(kv_consumer_state)
+            pipeline_v.consumer_release(kv_consumer_state)
+            kv_consumer_state.advance()
 
         
         
