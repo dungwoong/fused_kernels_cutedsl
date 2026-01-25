@@ -173,7 +173,7 @@ class FlashSM90:
             num_stages=self.num_stages,
             producer_group=pipeline_kv_producer_group,
             consumer_group=pipeline_kv_consumer_group,
-            tx_count=0, # should add tma copy bytes [k]
+            tx_count=self.tma_copy_bytes["K"], # should add tma copy bytes [k]
             defer_sync=True,
         )
         pipeline_v = PipelineTmaAsync.create(
@@ -181,7 +181,7 @@ class FlashSM90:
             num_stages=self.num_stages,
             producer_group=pipeline_kv_producer_group,
             consumer_group=pipeline_kv_consumer_group,
-            tx_count=0,
+            tx_count=self.tma_copy_bytes["V"],
             defer_sync=True,
         )
 
