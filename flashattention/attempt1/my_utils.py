@@ -1,6 +1,6 @@
 from typing import Type, Union, Optional
 import cutlass
-from cutlass import cute, const_expr
+from cutlass import cute, const_expr, Int32, Boolean
 from cutlass.cute.nvgpu import warpgroup
 import cutlass.utils.hopper_helpers as sm90_utils
 from cutlass.cutlass_dsl import Numeric, dsl_user_op
@@ -8,6 +8,12 @@ from cutlass.utils import LayoutEnum
 
 def select(a: cute.Tensor, mode: list[int]) -> cute.Tensor:
     return cute.make_tensor(a.iterator, cute.select(a.layout, mode))
+
+def transpose_view(a: cute.Tensor) -> cute.Tensor:
+    """Transpose the first two dimensions of a tensor on smem."""
+    shape = (a.shape[1], a.shape[0], *a.shape[2:])
+    order = (1, 0, *range(2, cute.rank(a)))
+    return cute.composition(a, cute.make_ordered_layout(shape, order=order))
 
 def tma_get_copy_fn(
     atom: cute.CopyAtom,
@@ -68,3 +74,87 @@ def make_smem_layout(
 
 # I ONLY use this for epi but in original quack codebase they use this for AB smem layout too(maybe)
 make_smem_layout_epi = make_smem_layout
+
+@cute.jit
+def gemm(
+    tiled_mma: cute.TiledMma,
+    acc: cute.Tensor,
+    tCrA: cute.Tensor,
+    tCrB: cute.Tensor,
+    zero_init: cutlass.Constexpr[bool] = False,
+    wg_wait: cutlass.Constexpr[int] = 0,
+) -> None:
+    warpgroup.fence()
+    mma_atom = cute.make_mma_atom(tiled_mma.op)
+    mma_atom.set(warpgroup.Field.ACCUMULATE, not zero_init)
+    for k in cutlass.range_constexpr(cute.size(tCrA.shape[2])): # m, k, n_iters
+        cute.gemm(mma_atom, acc, tCrA[None, None, k], tCrB[None, None, k], acc)
+        mma_atom.set(warpgroup.Field.ACCUMULATE, True)
+    cute.nvgpu.warpgroup.commit_group()
+    if const_expr(wg_wait >= 0):
+        cute.nvgpu.warpgroup.wait_group(wg_wait)
+
+@cute.jit
+def gemm_zero_init(
+    tiled_mma: cute.TiledMma,
+    shape: cute.Shape,
+    tCrA: cute.Tensor,
+    tCrB: cute.Tensor,
+    A_idx: Optional[Int32] = None,
+    B_idx: Optional[Int32] = None,
+    wg_wait: int=-1,
+) -> cute.Tensor:
+    acc = cute.make_rmem_tensor(tiled_mma.partition_shape_C(shape), cutlass.Float32)
+    rA = tCrA if const_expr(A_idx is None) else tCrA[None, None, None, A_idx]
+    rB = tCrB if const_expr(B_idx is None) else tCrB[None, None, None, B_idx]
+    gemm(tiled_mma, acc, rA, rB, zero_init=True, wg_wait=wg_wait)
+    return acc
+
+@cute.jit
+def gemm_w_index(
+    tiled_mma: cute.TiledMma,
+    acc: cute.Tensor,
+    tCrA: cute.Tensor,
+    tCrB: cute.Tensor,
+    zero_init: Boolean,
+    A_idx: Optional[Int32] = None,
+    B_idx: Optional[Int32] = None,
+    wg_wait: int=-1,
+) -> None:
+    rA = tCrA if const_expr(A_idx is None) else tCrA[None, None, None, A_idx]
+    rB = tCrB if const_expr(B_idx is None) else tCrB[None, None, None, B_idx]
+    gemm(tiled_mma, acc, rA, rB, zero_init=zero_init, wg_wait=wg_wait)
+
+def get_smem_store_atom(
+    arch: cutlass.Constexpr[int], element_type: Type[cute.Numeric], transpose: bool = False
+) -> cute.CopyAtom:
+    if const_expr(arch < 90 or element_type.width != 16):
+        return cute.make_copy_atom(
+            cute.nvgpu.CopyUniversalOp(),
+            element_type,
+            num_bits_per_copy=2 * element_type.width,
+        )
+    else:
+        return cute.make_copy_atom(
+            cute.nvgpu.warp.StMatrix8x8x16bOp(transpose=transpose, num_matrices=4),
+            element_type,
+        )
+
+@cute.jit
+def convert_layout_acc_frgA(acc_layout: cute.Layout) -> cute.Layout:
+    l = cute.logical_divide(
+        acc_layout, ((None, None, 2), None, None)
+    )  # ((2, 2, (2, N / 16)), MMA_M, MMA_N)
+    rA_mma_view = cute.make_layout(
+        (
+            (l.shape[0][0], l.shape[0][1], l.shape[0][2][0]),
+            l.shape[1],
+            (l.shape[0][2][1], l.shape[2]),
+        ),
+        stride=(
+            (l.stride[0][0], l.stride[0][1], l.stride[0][2][0]),
+            l.stride[1],
+            (l.stride[0][2][1], l.stride[2]),
+        ),
+    )
+    return rA_mma_view
