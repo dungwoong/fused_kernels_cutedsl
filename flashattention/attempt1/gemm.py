@@ -304,33 +304,47 @@ class FlashSM90:
         acc_o_shape = mma_pv.partition_shape_C((self.tile_m, self.hdimv))
         acc_o = cute.make_rmem_tensor(acc_o_shape, self.acc_dtype)
 
-        O_should_accumulate = False
         softmax.reset()
-        for n_tile in cutlass.range(n_block_max, unroll=1):
-            pipeline_k.consumer_wait(kv_consumer_state)
-            # Qk stuff
-            p_acc = my_utils.gemm_zero_init(mma_qk, (self.tile_m, self.tile_n), tSrQ, tSrK, B_idx=kv_consumer_state.index, wg_wait=-1)
-            cute.nvgpu.warpgroup.wait_group(0)
-            pipeline_k.consumer_release(kv_consumer_state)
-
-            # TODO softmax here, they have a softmax.online_softmax
-            # they call PTX directly to convert to f16 damnn
-            tOrP_acc = cute.make_tensor(p_acc.iterator, my_utils.convert_layout_acc_frgA(p_acc.layout))
-            tOrP.store(tOrP_acc.load().to(self.dtype))
-
-            row_scale = softmax.online_softmax(p_acc, is_first=not O_should_accumulate) # don't check inf for now
-            softmax.rescale_O(acc_o, row_scale)
-
-            pipeline_v.consumer_wait(kv_consumer_state)
-            # mma pv
-            my_utils.gemm_w_index(mma_pv, acc_o, tOrP, tOrVt, not O_should_accumulate, B_idx=kv_consumer_state.index, wg_wait=0)
-            O_should_accumulate = True
-            pipeline_v.consumer_release(kv_consumer_state)
-            kv_consumer_state.advance()
+        kv_consumer_state = self.mma_one_n_block(pipeline_k, pipeline_v, kv_consumer_state, mma_qk, tSrQ, tSrK, softmax, tOrP, acc_o, mma_pv, tOrVt, False, True)
+        for _ in cutlass.range(n_block_max-1, unroll=1):
+            kv_consumer_state = self.mma_one_n_block(pipeline_k, pipeline_v, kv_consumer_state, mma_qk, tSrQ, tSrK, softmax, tOrP, acc_o, mma_pv, tOrVt, True, False)
         # TODO need epilogue here now, then we can test correctness with doublegemm
         row_scale = softmax.finalize()
         softmax.rescale_O(acc_o, row_scale)
         self.epilogue(acc_o, sO, mO, tma_atom_o, mma_pv, tidx, m_block, head_idx, batch_idx)
+    
+    def mma_one_n_block(self, 
+                        pipeline_k: pipeline.PipelineAsync, pipeline_v: pipeline.PipelineAsync, 
+                        kv_consumer_state: pipeline.PipelineState, 
+                        mma_qk: cute.TiledMma, tSrQ: cute.Tensor, tSrK: cute.Tensor, 
+                        softmax: Softmax, 
+                        tOrP: cute.Tensor,
+                        acc_o: cute.Tensor,
+                        mma_pv: cute.TiledMma,
+                        tOrVt: cute.Tensor,
+                        O_should_accumulate: Boolean,
+                        softmax_is_first: cutlass.Constexpr[bool]):
+        pipeline_k.consumer_wait(kv_consumer_state)
+        # Qk stuff
+        p_acc = my_utils.gemm_zero_init(mma_qk, (self.tile_m, self.tile_n), tSrQ, tSrK, B_idx=kv_consumer_state.index, wg_wait=-1)
+        cute.nvgpu.warpgroup.wait_group(0)
+        pipeline_k.consumer_release(kv_consumer_state)
+
+        # TODO softmax here, they have a softmax.online_softmax
+        # they call PTX directly to convert to f16 damnn
+        tOrP_acc = cute.make_tensor(p_acc.iterator, my_utils.convert_layout_acc_frgA(p_acc.layout))
+        tOrP.store(tOrP_acc.load().to(self.dtype))
+
+        row_scale = softmax.online_softmax(p_acc, is_first=softmax_is_first) # don't check inf for now
+        softmax.rescale_O(acc_o, row_scale)
+
+        pipeline_v.consumer_wait(kv_consumer_state)
+        # mma pv
+        my_utils.gemm_w_index(mma_pv, acc_o, tOrP, tOrVt, not O_should_accumulate, B_idx=kv_consumer_state.index, wg_wait=0)
+        pipeline_v.consumer_release(kv_consumer_state)
+        kv_consumer_state.advance()
+        return kv_consumer_state
+
     
     @cute.jit
     def epilogue(self, acc_o: cute.Tensor, sO: cute.Tensor, mO: cute.Tensor, tma_atom_O: cute.CopyAtom, tiled_mma: cute.TiledMma, tidx: Int32, m_block: int, head_idx: int, batch_idx: int):

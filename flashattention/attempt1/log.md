@@ -26,6 +26,7 @@
 - We should just think of some way to annotate things so that this doesn't happen
 - so basically you run online_softmax to get new row scale and row max, then rescale_o
 - at the end of your accumulation, you run finalize() to get the reciprocal and then rescale o again
+- they have a compiletime is_first for softmax to do stuff so you HAVE to put the first iter outside the loop, and then do next iters later. IMPORTANT: need to think how this factors into our compiler but yeah.
 
 ## Adding the epilogue
 - Reuse sQ data iterator, sO might be larger but we have multiple stages.
