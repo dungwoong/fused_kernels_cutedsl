@@ -66,7 +66,7 @@ class FlashSM90:
         self,
         dtype,
         qk_mn: Tuple[int, int],
-        cluster_size_m: int,
+        cluster_size_m: int=1,
         num_stages: int=2,
         ):
         self.dtype = dtype
@@ -77,6 +77,8 @@ class FlashSM90:
         self.hdimk = 0 # TODO
         self.mnk_qk = (self.tile_m, self.tile_n, self.hdimk)
         self.buffer_align_bytes = 1024
+        self.is_mcast = cluster_size_m > 1
+        self.num_mcast = cluster_size_m
 
         # compile time, later
         self.num_mma_threads = None
@@ -133,6 +135,7 @@ class FlashSM90:
             cute.ceil_div(cute.size(mQ.shape[0]), self.tile_m), # n blocks
             cute.size(mQ.shape[2]),
             cute.size(mQ.shape[3]),
+            (self.num_mcast, 1),
         )
         tile_sched_params = SingleTileScheduler.to_underlying_arguments(tile_sched_args)
         grid_dim = SingleTileScheduler.get_grid_shape(tile_sched_params)
@@ -140,7 +143,7 @@ class FlashSM90:
 
         # we should be ready to do the kernel now
         print("launching kernel")
-        self.kernel(tma_tensor_q, tma_tensor_k, tma_tensor_v, tma_tensor_o, tma_atom_q, tma_atom_k, tma_atom_v, tma_atom_o, self.sQ_layout, self.sK_layout, self.sV_layout, self.sO_layout, tiled_mma_qk, tiled_mma_pv, n_block_max, SingleTileScheduler, tile_sched_params).launch(grid=grid_dim, block=[self.num_threads, 1, 1], stream=stream)
+        self.kernel(tma_tensor_q, tma_tensor_k, tma_tensor_v, tma_tensor_o, tma_atom_q, tma_atom_k, tma_atom_v, tma_atom_o, self.sQ_layout, self.sK_layout, self.sV_layout, self.sO_layout, tiled_mma_qk, tiled_mma_pv, n_block_max, SingleTileScheduler, tile_sched_params).launch(grid=grid_dim, block=[self.num_threads, 1, 1], cluster=[self.num_mcast, 1, 1], stream=stream)
     
     @cute.kernel
     def kernel(self, mQ: cute.Tensor, mK: cute.Tensor, mV: cute.Tensor, mO: cute.Tensor, 
@@ -173,6 +176,7 @@ class FlashSM90:
             producer_group=pipeline_kv_producer_group,
             consumer_group=pipeline_kv_consumer_group,
             tx_count=self.tma_copy_bytes["K"], # should add tma copy bytes [k]
+            cta_layout_vmnk=cute.make_layout((1, self.num_mcast, 1, 1)),
             defer_sync=True,
         )
         pipeline_v = PipelineTmaAsync.create(
@@ -181,6 +185,7 @@ class FlashSM90:
             producer_group=pipeline_kv_producer_group,
             consumer_group=pipeline_kv_consumer_group,
             tx_count=self.tma_copy_bytes["V"],
+            cta_layout_vmnk=cute.make_layout((1, self.num_mcast, 1, 1)),
             defer_sync=True,
         )
 
@@ -214,6 +219,11 @@ class FlashSM90:
              tma_atom_q: cute.CopyAtom, tma_atom_k: cute.CopyAtom, tma_atom_v: cute.CopyAtom, 
              pipeline_k: pipeline.PipelineAsync, pipeline_v: pipeline.PipelineAsync, n_block_max: int, TileSchedulerCls: Callable):
         warp_idx_in_wg = cute.arch.make_warp_uniform(cute.arch.warp_idx()) % 4
+        cta_rank_in_cluster = cute.arch.make_warp_uniform(
+            cute.arch.block_idx_in_cluster()
+        )
+        # cta_layout = cute.make_layout((self.num_mcast, 1))
+        # do I even need an mcast mask?
         if warp_idx_in_wg == 0:
             kv_producer_state = pipeline.make_pipeline_state(pipeline.PipelineUserType.Producer, self.num_stages)
             tile_scheduler = TileSchedulerCls()
@@ -233,11 +243,11 @@ class FlashSM90:
             )
 
             load_K, _, _ = my_utils.tma_get_copy_fn(
-                tma_atom_k, 0, cute.make_layout(1), gK, sK, 
+                tma_atom_k, cta_rank_in_cluster, cute.make_layout(1), gK, sK, 
             )
 
             load_V, _, _ = my_utils.tma_get_copy_fn(
-                tma_atom_v, 0, cute.make_layout(1), gV, sV,
+                tma_atom_v, cta_rank_in_cluster, cute.make_layout(1), gV, sV,
             )
 
             # 1824: First pipeline K, just add Q in there
@@ -437,7 +447,7 @@ class FlashSM90:
         }
 
         gcq = cute.nvgpu.cpasync.CopyBulkTensorTileG2SOp()
-        gckv = cute.nvgpu.cpasync.CopyBulkTensorTileG2SOp() # no multicast for now
+        gckv = cute.nvgpu.cpasync.CopyBulkTensorTileG2SOp() if not self.is_mcast else cute.nvgpu.cpasync.CopyBulkTensorTileG2SMulticastOp()
         gso = cute.nvgpu.cpasync.CopyBulkTensorTileS2GOp()
         tma_atom_q, tma_tensor_q = cute.nvgpu.cpasync.make_tiled_tma_atom(
             gcq,
@@ -450,14 +460,14 @@ class FlashSM90:
             mK,
             cute.select(self.sK_layout, mode=[0, 1]),
             (self.tile_n, self.hdimk),
-            1
+            self.num_mcast
         )
         tma_atom_v, tma_tensor_v = cute.nvgpu.cpasync.make_tiled_tma_atom(
             gckv,
             mV,
             cute.select(self.sV_layout, mode=[0, 1]),
             (self.tile_n, self.hdimv),
-            1
+            self.num_mcast
         )
         tma_atom_o, tma_tensor_o = cute.nvgpu.cpasync.make_tiled_tma_atom(
             gso,

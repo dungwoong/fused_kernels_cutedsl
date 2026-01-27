@@ -26,6 +26,7 @@ class TileSchedulerArguments(ParamsBase):
     num_block: Int32
     num_head: Int32
     num_batch: Int32
+    cluster_shape_mn: Tuple[int, int]
 
 class SingleTileScheduler:
     @dataclass
@@ -41,6 +42,7 @@ class SingleTileScheduler:
                 args.num_block,
                 args.num_head,
                 args.num_batch,
+                args.cluster_shape_mn,
             )
     
     def __init__(self, params: Params, blk_coord: cute.Coord, *, loc=None, ip=None):
@@ -61,7 +63,6 @@ class SingleTileScheduler:
     
     @staticmethod
     def get_grid_shape(params: Params, *, loc=None, ip=None) -> Tuple[Int32, Int32, Int32]:
-        assert params.cluster_shape_mn == (1, 1), "No cluster supported"
         return (
             cute.round_up(params.num_block, params.cluster_shape_mn[0]),
             params.num_head,
