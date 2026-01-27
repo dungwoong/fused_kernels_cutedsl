@@ -73,8 +73,8 @@ class FlashSM90:
         self.acc_dtype = cutlass.Float32
         self.num_stages = num_stages
         self.tile_m, self.tile_n = qk_mn
-        self.hdimv = 64 # TODO
-        self.hdimk = 64 # TODO
+        self.hdimv = 0 # TODO
+        self.hdimk = 0 # TODO
         self.mnk_qk = (self.tile_m, self.tile_n, self.hdimk)
         self.buffer_align_bytes = 1024
 
@@ -99,22 +99,8 @@ class FlashSM90:
                 mV: cute.Tensor,
                 mO: cute.Tensor,
                 stream: cuda.CUstream):
-        print(mQ)
-        
-        # this just assumes strides must be divisible by 128 bits, but not sure why we do this
-        new_stride = lambda t: (
-            *(
-                cute.assume(s, divby=128 // t.element_type.width)
-                if not isinstance(s, int) or s != 0
-                else s
-                for s in t.stride[:-1]
-            ),
-            t.stride[-1],
-        )
-        # mQ, mK, mV, mO = [
-        #     cute.make_tensor(t.iterator, cute.make_layout(t.shape, stride=new_stride(t)))
-        #     for t in (mQ, mK, mV, mO)
-        # ]
+        self.hdimk = cute.size(mQ, mode=[3])
+        self.hdimv = cute.size(mV, mode=[3])
         
         mQ, mK, mV, mO = [my_utils.select(x, [2, 3, 1, 0]) for x in (mQ, mK, mV, mO)] # (b, h, seqlen, d) --> (seqlen, d, h, b)
         tiled_mma_qk, tiled_mma_pv = self._get_tiled_mma()
@@ -483,10 +469,10 @@ class FlashSM90:
 
 
 if __name__ == "__main__":
-    q = torch.randn((1, 1, 1024, 64), dtype=torch.bfloat16).add(0.01).to('cuda')
-    k = torch.randn((1, 1, 1024, 64), dtype=torch.bfloat16).add(0.01).to('cuda')
-    v = torch.randn((1, 1, 1024, 64), dtype=torch.bfloat16).add(0.01).to('cuda')
-    o = torch.zeros((1, 1, 1024, 64), dtype=torch.bfloat16).to('cuda')
+    q = torch.randn((2, 2, 1024, 64), dtype=torch.bfloat16).add(0.01).to('cuda')
+    k = torch.randn((2, 2, 1024, 64), dtype=torch.bfloat16).add(0.01).to('cuda')
+    v = torch.randn((2, 2, 1024, 64), dtype=torch.bfloat16).add(0.01).to('cuda')
+    o = torch.zeros((2, 2, 1024, 64), dtype=torch.bfloat16).to('cuda')
 
     convert_from_dlpack = lambda tensor: (
         from_dlpack(tensor.detach(), assumed_align=16)
@@ -498,7 +484,7 @@ if __name__ == "__main__":
     fa(q_cute, k_cute, v_cute, o_cute, current_stream)
 
     ref = (q @ k.transpose(2, 3)) @ v
-    print(o)
+    # print(o)
     n_incorrect = o.numel() - ((o - ref).abs() < 0.01).sum().item()
     print('allclose:', torch.allclose(ref, o, atol=1e-1, rtol=1e-2)) # look at docs for torch.testing.assert_close for details
     print('max error:', torch.max((o-ref).abs()).item())
