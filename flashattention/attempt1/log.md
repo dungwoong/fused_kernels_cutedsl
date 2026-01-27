@@ -34,3 +34,5 @@
 ## Locations
 - For loop over `n_tile`: 2132 and surrounding
 - One loop helper fn: 2302 `mma_one_n_block`
+
+Softmax can run, need to see if it's correct

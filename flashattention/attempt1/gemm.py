@@ -290,8 +290,6 @@ class FlashSM90:
         work_tile = tile_scheduler.initial_work_tile_info()
         m_block, head_idx, batch_idx = work_tile.tile_idx
 
-        softmax = Softmax.create(softmax_scale_log2, num_rows=acc_o.shape[0][0] * acc_o.shape[1])
-
         thr_mma_qk = mma_qk.get_slice(tidx)
         tSrQ = mma_qk.make_fragment_A(thr_mma_qk.partition_A(sQ))
         tSrK = mma_qk.make_fragment_B(thr_mma_qk.partition_B(sK))
@@ -303,6 +301,8 @@ class FlashSM90:
         tOrVt = mma_pv.make_fragment_B(thr_mma_pv.partition_B(sVt))
         acc_o_shape = mma_pv.partition_shape_C((self.tile_m, self.hdimv))
         acc_o = cute.make_rmem_tensor(acc_o_shape, self.acc_dtype)
+
+        softmax = Softmax.create(softmax_scale_log2, num_rows=acc_o.shape[0][0] * acc_o.shape[1])
 
         softmax.reset()
         kv_consumer_state = self.mma_one_n_block(pipeline_k, pipeline_v, kv_consumer_state, mma_qk, tSrQ, tSrK, softmax, tOrP, acc_o, mma_pv, tOrVt, False, True)
@@ -521,7 +521,7 @@ if __name__ == "__main__":
     current_stream = cuda.CUstream(torch.cuda.current_stream().cuda_stream)
 
     fa = FlashSM90(dtype=cutlass.BFloat16, qk_mn=(128, 256), cluster_size_m=2)
-    fa(q_cute, k_cute, v_cute, o_cute, current_stream)
+    fa(q_cute, k_cute, v_cute, o_cute, 0.125, current_stream)
 
     ref = (q @ k.transpose(2, 3)) @ v
     # print(o)
