@@ -17,6 +17,7 @@ from cutlass.pipeline import pipeline_init_arrive, pipeline_init_wait, PipelineS
 import cutlass.torch as cutlass_torch
 from cutlass.cute.runtime import from_dlpack
 import cutlass.utils.hopper_helpers as sm90_utils
+from my_softmax import Softmax
 
 from pipeline import PipelineTmaAsync
 
@@ -100,6 +101,7 @@ class FlashSM90:
                 mK: cute.Tensor,
                 mV: cute.Tensor,
                 mO: cute.Tensor,
+                softmax_scale: cutlass.Float32,
                 stream: cuda.CUstream):
         self.hdimk = cute.size(mQ, mode=[3])
         self.hdimv = cute.size(mV, mode=[3])
@@ -139,11 +141,12 @@ class FlashSM90:
         )
         tile_sched_params = SingleTileScheduler.to_underlying_arguments(tile_sched_args)
         grid_dim = SingleTileScheduler.get_grid_shape(tile_sched_params)
-        # LOG2_E = math.log2(math.e) # I think we can multiply by 1/sqrt(d) here too
+        softmax_scale_log2 = softmax_scale * math.log2(math.e) # I think we can multiply by 1/sqrt(d) here too
+
 
         # we should be ready to do the kernel now
         print("launching kernel")
-        self.kernel(tma_tensor_q, tma_tensor_k, tma_tensor_v, tma_tensor_o, tma_atom_q, tma_atom_k, tma_atom_v, tma_atom_o, self.sQ_layout, self.sK_layout, self.sV_layout, self.sO_layout, tiled_mma_qk, tiled_mma_pv, n_block_max, SingleTileScheduler, tile_sched_params).launch(grid=grid_dim, block=[self.num_threads, 1, 1], cluster=[self.num_mcast, 1, 1], stream=stream)
+        self.kernel(tma_tensor_q, tma_tensor_k, tma_tensor_v, tma_tensor_o, tma_atom_q, tma_atom_k, tma_atom_v, tma_atom_o, self.sQ_layout, self.sK_layout, self.sV_layout, self.sO_layout, tiled_mma_qk, tiled_mma_pv, n_block_max, softmax_scale_log2, SingleTileScheduler, tile_sched_params).launch(grid=grid_dim, block=[self.num_threads, 1, 1], cluster=[self.num_mcast, 1, 1], stream=stream)
     
     @cute.kernel
     def kernel(self, mQ: cute.Tensor, mK: cute.Tensor, mV: cute.Tensor, mO: cute.Tensor, 
@@ -151,6 +154,7 @@ class FlashSM90:
                sQ_layout: cute.ComposedLayout, sK_layout: cute.ComposedLayout, sV_layout: cute.ComposedLayout, sO_layout: cute.ComposedLayout,
                mma_qk: cute.TiledMma, mma_pv: cute.TiledMma,
                n_block_max: int,
+               softmax_scale_log2: cutlass.Float32,
                TileScheduler: cutlass.Constexpr[Callable], tile_sched_params: ParamsBase):
         """
         First wg(0-4) --> producer
@@ -211,7 +215,7 @@ class FlashSM90:
             tidx, _, _ = cute.arch.thread_idx()
             tidx = tidx - 128
             cute.arch.warpgroup_reg_alloc(self.num_mma_regs)
-            self.mma(n_block_max, sQ, sK, sVt, sO, mO, pipeline_k, pipeline_v, mma_qk, mma_pv, tma_atom_o, tidx, TileSchedulerCls)
+            self.mma(n_block_max, sQ, sK, sVt, sO, mO, pipeline_k, pipeline_v, mma_qk, mma_pv, tma_atom_o, tidx, softmax_scale_log2, TileSchedulerCls)
     
     @cute.jit
     def load(self, mQ: cute.Tensor, mK: cute.Tensor, mV: cute.Tensor, 
@@ -279,12 +283,14 @@ class FlashSM90:
     def mma(self, n_block_max: int, 
             sQ: cute.Tensor, sK: cute.Tensor, sVt: cute.Tensor, sO: cute.Tensor,
             mO: cute.Tensor,
-            pipeline_k: pipeline.PipelineAsync, pipeline_v: pipeline.PipelineAsync, mma_qk: cute.TiledMma, mma_pv: cute.TiledMma, tma_atom_o: cute.CopyAtom, tidx: Int32, TileSchedulerCls: Callable):
+            pipeline_k: pipeline.PipelineAsync, pipeline_v: pipeline.PipelineAsync, mma_qk: cute.TiledMma, mma_pv: cute.TiledMma, tma_atom_o: cute.CopyAtom, tidx: Int32, softmax_scale_log2: cutlass.Float32, TileSchedulerCls: Callable):
         kv_consumer_state = pipeline.make_pipeline_state(pipeline.PipelineUserType.Consumer, self.num_stages)
         # pipeline_k.consumer_wait(kv_consumer_state)
         tile_scheduler = TileSchedulerCls()
         work_tile = tile_scheduler.initial_work_tile_info()
         m_block, head_idx, batch_idx = work_tile.tile_idx
+
+        softmax = Softmax.create(softmax_scale_log2, num_rows=acc_o.shape[0][0] * acc_o.shape[1])
 
         thr_mma_qk = mma_qk.get_slice(tidx)
         tSrQ = mma_qk.make_fragment_A(thr_mma_qk.partition_A(sQ))
@@ -297,7 +303,9 @@ class FlashSM90:
         tOrVt = mma_pv.make_fragment_B(thr_mma_pv.partition_B(sVt))
         acc_o_shape = mma_pv.partition_shape_C((self.tile_m, self.hdimv))
         acc_o = cute.make_rmem_tensor(acc_o_shape, self.acc_dtype)
+
         O_should_accumulate = False
+        softmax.reset()
         for n_tile in cutlass.range(n_block_max, unroll=1):
             pipeline_k.consumer_wait(kv_consumer_state)
             # Qk stuff
@@ -310,6 +318,9 @@ class FlashSM90:
             tOrP_acc = cute.make_tensor(p_acc.iterator, my_utils.convert_layout_acc_frgA(p_acc.layout))
             tOrP.store(tOrP_acc.load().to(self.dtype))
 
+            row_scale = softmax.online_softmax(p_acc, is_first=not O_should_accumulate) # don't check inf for now
+            softmax.rescale_O(acc_o, row_scale)
+
             pipeline_v.consumer_wait(kv_consumer_state)
             # mma pv
             my_utils.gemm_w_index(mma_pv, acc_o, tOrP, tOrVt, not O_should_accumulate, B_idx=kv_consumer_state.index, wg_wait=0)
@@ -317,6 +328,8 @@ class FlashSM90:
             pipeline_v.consumer_release(kv_consumer_state)
             kv_consumer_state.advance()
         # TODO need epilogue here now, then we can test correctness with doublegemm
+        row_scale = softmax.finalize()
+        softmax.rescale_O(acc_o, row_scale)
         self.epilogue(acc_o, sO, mO, tma_atom_o, mma_pv, tidx, m_block, head_idx, batch_idx)
     
     @cute.jit

@@ -21,7 +21,15 @@
 - So overall, once you do gemm0, the next warp can do gemm0
 - In `mma_barrier_init`, they arrive at WG1's barrier so when they call sync later, WG1 immediately is good to go
 
+## Online softmax
+- IMPORTANT: if we had two atoms side by side, then the online softmax would fail, since it assumes warps hold the entire row
+- We should just think of some way to annotate things so that this doesn't happen
+- so basically you run online_softmax to get new row scale and row max, then rescale_o
+- at the end of your accumulation, you run finalize() to get the reciprocal and then rescale o again
+
 ## Adding the epilogue
 - Reuse sQ data iterator, sO might be larger but we have multiple stages.
 
-TODO make sure loaded tile is correct(we can probably check this later, it should be fine though)
+## Locations
+- For loop over `n_tile`: 2132 and surrounding
+- One loop helper fn: 2302 `mma_one_n_block`
