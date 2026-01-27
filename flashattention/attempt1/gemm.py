@@ -27,6 +27,8 @@ import my_utils
 import math
 import enum
 
+torch.manual_seed(42)
+
 THREADS_PER_WG = 128
 
 class NamedBarrierFwd(enum.IntEnum):
@@ -481,10 +483,10 @@ class FlashSM90:
 
 
 if __name__ == "__main__":
-    q = torch.randn((16, 16, 1024, 64), dtype=torch.bfloat16).to('cuda')
-    k = torch.randn((16, 16, 1024, 64), dtype=torch.bfloat16).to('cuda')
-    v = torch.randn((16, 16, 1024, 64), dtype=torch.bfloat16).to('cuda')
-    o = torch.empty((16, 16, 1024, 64), dtype=torch.bfloat16).to('cuda')
+    q = torch.randn((1, 1, 1024, 64), dtype=torch.bfloat16).add(0.01).to('cuda')
+    k = torch.randn((1, 1, 1024, 64), dtype=torch.bfloat16).add(0.01).to('cuda')
+    v = torch.randn((1, 1, 1024, 64), dtype=torch.bfloat16).add(0.01).to('cuda')
+    o = torch.zeros((1, 1, 1024, 64), dtype=torch.bfloat16).to('cuda')
 
     convert_from_dlpack = lambda tensor: (
         from_dlpack(tensor.detach(), assumed_align=16)
@@ -494,3 +496,10 @@ if __name__ == "__main__":
 
     fa = FlashSM90(dtype=cutlass.BFloat16, qk_mn=(128, 256), cluster_size_m=1)
     fa(q_cute, k_cute, v_cute, o_cute, current_stream)
+
+    ref = (q @ k.transpose(2, 3)) @ v
+    print(o)
+    n_incorrect = o.numel() - ((o - ref).abs() < 0.01).sum().item()
+    print('allclose:', torch.allclose(ref, o, atol=1e-1, rtol=1e-2)) # look at docs for torch.testing.assert_close for details
+    print('max error:', torch.max((o-ref).abs()).item())
+    print(f'{n_incorrect=}')
