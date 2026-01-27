@@ -169,7 +169,7 @@ class FlashSM90:
 
         mbar_Q = storage.mbar_qo.data_ptr() # TODO need to init?
         pipeline_kv_producer_group = pipeline.CooperativeGroup(pipeline.Agent.Thread, size=1)
-        pipeline_kv_consumer_group = pipeline.CooperativeGroup(pipeline.Agent.Thread, self.num_mma_threads // cute.arch.WARP_SIZE)
+        pipeline_kv_consumer_group = pipeline.CooperativeGroup(pipeline.Agent.Thread, (self.num_mma_threads // cute.arch.WARP_SIZE) * self.num_mcast)
         pipeline_k = PipelineTmaAsync.create(
             barrier_storage=storage.mbar_k.data_ptr(),
             num_stages=self.num_stages,
@@ -177,7 +177,7 @@ class FlashSM90:
             consumer_group=pipeline_kv_consumer_group,
             tx_count=self.tma_copy_bytes["K"], # should add tma copy bytes [k]
             cta_layout_vmnk=cute.make_layout((1, self.num_mcast, 1, 1)),
-            defer_sync=True,
+            defer_sync=False,
         )
         pipeline_v = PipelineTmaAsync.create(
             barrier_storage=storage.mbar_v.data_ptr(),
@@ -186,7 +186,7 @@ class FlashSM90:
             consumer_group=pipeline_kv_consumer_group,
             tx_count=self.tma_copy_bytes["V"],
             cta_layout_vmnk=cute.make_layout((1, self.num_mcast, 1, 1)),
-            defer_sync=True,
+            defer_sync=False,
         )
 
         sQ = storage.sQ.get_tensor(sQ_layout.outer, swizzle=sQ_layout.inner)
@@ -222,7 +222,10 @@ class FlashSM90:
         cta_rank_in_cluster = cute.arch.make_warp_uniform(
             cute.arch.block_idx_in_cluster()
         )
-        # cta_layout = cute.make_layout((self.num_mcast, 1))
+        cta_layout = cute.make_layout((self.num_mcast, 1))
+        mcast_mask = cute.make_layout_image_mask(
+            cta_layout, (cta_rank_in_cluster, 0), mode=0
+        )
         # do I even need an mcast mask?
         if warp_idx_in_wg == 0:
             kv_producer_state = pipeline.make_pipeline_state(pipeline.PipelineUserType.Producer, self.num_stages)
@@ -243,11 +246,11 @@ class FlashSM90:
             )
 
             load_K, _, _ = my_utils.tma_get_copy_fn(
-                tma_atom_k, cta_rank_in_cluster, cute.make_layout(1), gK, sK, 
+                tma_atom_k, cta_rank_in_cluster, cute.make_layout((self.num_mcast, 1)), gK, sK, mcast_mask=mcast_mask
             )
 
             load_V, _, _ = my_utils.tma_get_copy_fn(
-                tma_atom_v, cta_rank_in_cluster, cute.make_layout(1), gV, sV,
+                tma_atom_v, cta_rank_in_cluster, cute.make_layout((self.num_mcast, 1)), gV, sV, mcast_mask=mcast_mask
             )
 
             # 1824: First pipeline K, just add Q in there
@@ -479,10 +482,10 @@ class FlashSM90:
 
 
 if __name__ == "__main__":
-    q = torch.randn((2, 2, 1024, 64), dtype=torch.bfloat16).add(0.01).to('cuda')
-    k = torch.randn((2, 2, 1024, 64), dtype=torch.bfloat16).add(0.01).to('cuda')
-    v = torch.randn((2, 2, 1024, 64), dtype=torch.bfloat16).add(0.01).to('cuda')
-    o = torch.zeros((2, 2, 1024, 64), dtype=torch.bfloat16).to('cuda')
+    q = torch.randn((1, 1, 1024, 64), dtype=torch.bfloat16).add(0.01).to('cuda')
+    k = torch.randn((1, 1, 1024, 64), dtype=torch.bfloat16).add(0.01).to('cuda')
+    v = torch.randn((1, 1, 1024, 64), dtype=torch.bfloat16).add(0.01).to('cuda')
+    o = torch.zeros((1, 1, 1024, 64), dtype=torch.bfloat16).to('cuda')
 
     convert_from_dlpack = lambda tensor: (
         from_dlpack(tensor.detach(), assumed_align=16)
@@ -490,12 +493,13 @@ if __name__ == "__main__":
     [q_cute, k_cute, v_cute, o_cute] = [convert_from_dlpack(x) for x in (q, k, v, o)]
     current_stream = cuda.CUstream(torch.cuda.current_stream().cuda_stream)
 
-    fa = FlashSM90(dtype=cutlass.BFloat16, qk_mn=(128, 256), cluster_size_m=1)
+    fa = FlashSM90(dtype=cutlass.BFloat16, qk_mn=(128, 256), cluster_size_m=2)
     fa(q_cute, k_cute, v_cute, o_cute, current_stream)
 
     ref = (q @ k.transpose(2, 3)) @ v
     # print(o)
     n_incorrect = o.numel() - ((o - ref).abs() < 0.01).sum().item()
+    print(o)
     print('allclose:', torch.allclose(ref, o, atol=1e-1, rtol=1e-2)) # look at docs for torch.testing.assert_close for details
     print('max error:', torch.max((o-ref).abs()).item())
     print(f'{n_incorrect=}')
