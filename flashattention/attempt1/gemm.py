@@ -312,6 +312,7 @@ class FlashSM90:
             pipeline_v.consumer_wait(kv_consumer_state)
             # mma pv
             my_utils.gemm_w_index(mma_pv, acc_o, tOrP, tOrVt, not O_should_accumulate, B_idx=kv_consumer_state.index, wg_wait=0)
+            O_should_accumulate = True
             pipeline_v.consumer_release(kv_consumer_state)
             kv_consumer_state.advance()
         # TODO need epilogue here now, then we can test correctness with doublegemm
