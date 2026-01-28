@@ -3,6 +3,8 @@ from typing import Callable, Tuple, Type
 import cuda.bindings.driver as cuda
 
 import torch
+import torch.nn.functional as F
+from torch.nn.attention import SDPBackend, sdpa_kernel
 from triton import runtime
 import functools
 import statistics
@@ -523,7 +525,7 @@ if __name__ == "__main__":
     fa = FlashSM90(dtype=cutlass.BFloat16, qk_mn=(128, 256), cluster_size_m=2)
     fa(q_cute, k_cute, v_cute, o_cute, 0.125, current_stream)
 
-    ref = (q @ k.transpose(2, 3)) @ v
+    ref = F.scaled_dot_product_attention(q, k, v)
     # print(o)
     n_incorrect = o.numel() - ((o - ref).abs() < 0.01).sum().item()
     print(o)
