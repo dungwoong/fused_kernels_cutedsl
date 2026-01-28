@@ -54,14 +54,14 @@ def print0(x):
             cute.printf(x)
 
 @cute.jit
-def printwg(x):
+def printc(x):
     tidx, _, _ = cute.arch.thread_idx()
     bidx, bidy, bidz = cute.arch.block_idx()
     if cutlass.const_expr(isinstance(x, cute.TensorSSA)):
-        if tidx%128 == 0 and bidx == 0 and bidy == 0 and bidz == 0:
+        if tidx == 128 and bidx == 0 and bidy == 0 and bidz == 0:
             cute.print_tensor(x)
     else:
-        if tidx%128 == 0 and bidx == 0 and bidy == 0 and bidz == 0:
+        if tidx == 128 and bidx == 0 and bidy == 0 and bidz == 0:
             cute.printf(x)
 
 class FlashSM90:
@@ -306,12 +306,13 @@ class FlashSM90:
 
         softmax = Softmax.create(softmax_scale_log2, num_rows=acc_o.shape[0][0] * acc_o.shape[1])
 
-        softmax.reset()
+        # softmax.reset() # is_first takes care of this
         kv_consumer_state = self.mma_one_n_block(pipeline_k, pipeline_v, kv_consumer_state, mma_qk, tSrQ, tSrK, softmax, tOrP, acc_o, mma_pv, tOrVt, False, True)
         for _ in cutlass.range(n_block_max-1, unroll=1):
             kv_consumer_state = self.mma_one_n_block(pipeline_k, pipeline_v, kv_consumer_state, mma_qk, tSrQ, tSrK, softmax, tOrP, acc_o, mma_pv, tOrVt, True, False)
         # TODO need epilogue here now, then we can test correctness with doublegemm
         row_scale = softmax.finalize()
+        printc(row_scale)
         softmax.rescale_O(acc_o, row_scale)
         self.epilogue(acc_o, sO, mO, tma_atom_o, mma_pv, tidx, m_block, head_idx, batch_idx)
     
@@ -509,6 +510,13 @@ class FlashSM90:
         )
         return tma_atom_q, tma_tensor_q, tma_atom_k, tma_tensor_k, tma_atom_v, tma_tensor_v, tma_atom_o, tma_tensor_o
 
+def attn_reimpl(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor):
+    p = q @ k.transpose(2, 3)
+    p = p * ((q.size(-1)**-0.5) * math.log2(math.e))
+    p = torch.exp2(p - torch.max(p, dim=-1, keepdim=True).values)
+    recip = torch.reciprocal(torch.sum(p, dim=-1, keepdim=True))
+    print(recip)
+    return (p @ v) * recip
 
 if __name__ == "__main__":
     q = torch.randn((1, 1, 1024, 64), dtype=torch.bfloat16).add(0.01).to('cuda')
@@ -525,10 +533,9 @@ if __name__ == "__main__":
     fa = FlashSM90(dtype=cutlass.BFloat16, qk_mn=(128, 256), cluster_size_m=2)
     fa(q_cute, k_cute, v_cute, o_cute, 0.125, current_stream)
 
-    ref = F.scaled_dot_product_attention(q, k, v)
+    ref = attn_reimpl(q, k, v)
     # print(o)
     n_incorrect = o.numel() - ((o - ref).abs() < 0.01).sum().item()
-    print(o)
     print('allclose:', torch.allclose(ref, o, atol=1e-1, rtol=1e-2)) # look at docs for torch.testing.assert_close for details
     print('max error:', torch.max((o-ref).abs()).item())
     print(f'{n_incorrect=}')
