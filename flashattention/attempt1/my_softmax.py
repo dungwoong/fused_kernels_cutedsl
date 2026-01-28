@@ -31,12 +31,6 @@ class Softmax(ParamsBase):
     def reset(self) -> None:
         self.row_max.fill(-cutlass.Float32.inf)
         self.row_sum.fill(0.0)
-    
-    def _compute_row_max() -> cutlass.Float32:
-        pass
-
-    def _compute_row_sum() -> cutlass.Float32:
-        pass
 
     @cute.jit
     def online_softmax(self, acc_S: cute.Tensor, is_first: cutlass.Constexpr[bool]=False, check_inf: cutlass.Constexpr[bool] = True):

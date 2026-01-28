@@ -38,4 +38,6 @@
 ## Debugging
 - we were doing `softmax.online_softmax` late. We declared `tOrp_acc` and then stored `tOrP` in and THEN did softmax, so WAW dependency was not preserved.
 
-Softmax can run, need to see if it's correct
+## Other stuff
+- They have SeqlenInfo and BlockInfo for block-sparsity or whatever
+- They can do epilogue in one go since we know it must fit into the staged SMEM. We can think about this as a potential rewrite idk
