@@ -45,6 +45,7 @@ def _get_qkvo(bs, nh, lq, lkv, head_dim, head_dim_v=None):
     return q, k, v, o
 
 def profile_ms(op, repeats=30):
+    stream = torch.cuda.current_stream()
 
     clear_cache = functools.partial(
         runtime.driver.active.clear_cache,  # type: ignore[attr-defined]
@@ -61,9 +62,9 @@ def profile_ms(op, repeats=30):
 
     for i in range(repeats):
         clear_cache()
-        start[i].record()
+        start[i].record(stream)
         op()
-        end[i].record()
+        end[i].record(stream)
 
     torch.cuda.synchronize()
     return statistics.median([s.elapsed_time(e) for s, e in zip(start, end)])
@@ -76,12 +77,14 @@ convert_from_dlpack = lambda tensor: (
 # TODO this does not work for hung outputs on the GPU, so beware...
 def _run_test_impl(fa, bs, nh, lq, lkv, head_dim, head_dim_v=None, tag="attn"):
     q, k, v, o= _get_qkvo(bs, nh, lq, lkv, head_dim, head_dim_v)
-    ref = F.scaled_dot_product_attention(q, k, v)
-    [q_cute, k_cute, v_cute, o_cute] = [convert_from_dlpack(x) for x in (q, k, v, o)]
+    q_cute, k_cute, v_cute, o_cute = [convert_from_dlpack(x) for x in (q, k, v, o)]
     current_stream = cuda.CUstream(torch.cuda.current_stream().cuda_stream)
     inv_sqrt_d = q.shape[-1]**-0.5
     compiled_fa = cute.compile(fa, q_cute, k_cute, v_cute, o_cute, inv_sqrt_d, current_stream)
     compiled_fa(q_cute, k_cute, v_cute, o_cute, inv_sqrt_d, current_stream)
+    torch.cuda.synchronize()
+
+    ref = F.scaled_dot_product_attention(q, k, v)
     
     # TODO consider choosing a different tolerance
     assert torch.allclose(ref, o, atol=1e-1, rtol=1e-2), f'Incorrect. Max abs diff: {torch.max((o - ref).abs()).item()}'
@@ -116,7 +119,7 @@ def async_wrapper(queue, fa, bs, nh, lq, lkv, head_dim, head_dim_v, tag):
 def run_test(fa, bs, nh, lq, lkv, head_dim, head_dim_v, tag, timeout=30):
     ctx = mp.get_context('spawn')
     q = ctx.Queue()
-    p = ctx.Process(target=async_wrapper, args=(q, fa, bs, nh, lq, lkv, head_dim, head_dim_v, tag, tag))
+    p = ctx.Process(target=async_wrapper, args=(q, fa, bs, nh, lq, lkv, head_dim, head_dim_v, tag))
     p.start()
 
     p.join(timeout=timeout)
@@ -133,14 +136,14 @@ def run_test(fa, bs, nh, lq, lkv, head_dim, head_dim_v, tag, timeout=30):
     print(f'{payload}, {logs}')
 
 def test_cudnn_basic():
-    _run_test_impl_torch(16, 16, 1024, 1024, 64, SDPBackend.CUDNN_ATTENTION)
+    _run_test_impl_torch(16, 16, 4096, 4096, 64, SDPBackend.CUDNN_ATTENTION)
 
 def test_flash_basic():
-    _run_test_impl_torch(16, 16, 1024, 1024, 64, SDPBackend.FLASH_ATTENTION)
+    _run_test_impl_torch(16, 16, 4096, 4096, 64, SDPBackend.FLASH_ATTENTION)
 
 def test_basic():
-    fa = FlashSM90(qk_mn=(128, 256), cluster_size_m=2)
-    run_test(fa, 16, 16, 1024, 1024, 64, 64, 'basic')
+    fa = FlashSM90(qk_mn=(128, 256), cluster_size_m=1)
+    run_test(fa, 16, 16, 4096, 4096, 64, 64, 'basic')
 
 
 

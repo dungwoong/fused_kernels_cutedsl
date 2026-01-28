@@ -144,9 +144,16 @@ class FlashSM90:
         )
         tile_sched_params = SingleTileScheduler.to_underlying_arguments(tile_sched_args)
         grid_dim = SingleTileScheduler.get_grid_shape(tile_sched_params)
+        print(grid_dim)
         softmax_scale_log2 = softmax_scale * math.log2(math.e)
 
-        self.kernel(tma_tensor_q, tma_tensor_k, tma_tensor_v, tma_tensor_o, tma_atom_q, tma_atom_k, tma_atom_v, tma_atom_o, self.sQ_layout, self.sK_layout, self.sV_layout, self.sO_layout, tiled_mma_qk, tiled_mma_pv, n_block_max, softmax_scale_log2, SingleTileScheduler, tile_sched_params).launch(grid=grid_dim, block=[self.num_threads, 1, 1], cluster=[self.num_mcast, 1, 1], stream=stream)
+        self.kernel(
+            tma_tensor_q, tma_tensor_k, tma_tensor_v, tma_tensor_o, 
+            tma_atom_q, tma_atom_k, tma_atom_v, tma_atom_o, 
+            self.sQ_layout, self.sK_layout, self.sV_layout, self.sO_layout, 
+            tiled_mma_qk, tiled_mma_pv, 
+            n_block_max, softmax_scale_log2, 
+            SingleTileScheduler, tile_sched_params).launch(grid=grid_dim, block=[self.num_threads, 1, 1], cluster=[self.num_mcast, 1, 1], stream=stream)
     
     @cute.kernel
     def kernel(self, mQ: cute.Tensor, mK: cute.Tensor, mV: cute.Tensor, mO: cute.Tensor, 
@@ -505,21 +512,48 @@ convert_from_dlpack = lambda tensor: (
         from_dlpack(tensor.detach(), assumed_align=16)
     )
 
+def profile_ms(op, repeats=30):
+    stream = torch.cuda.current_stream()
+
+    clear_cache = functools.partial(
+        runtime.driver.active.clear_cache,  # type: ignore[attr-defined]
+        runtime.driver.active.get_empty_cache_for_benchmark(),  # type: ignore[attr-defined]
+    )
+    clear_cache()
+
+    # warmup
+    op()
+    torch.cuda.synchronize()
+
+    start = [torch.cuda.Event(enable_timing=True) for _ in range(repeats)]
+    end = [torch.cuda.Event(enable_timing=True) for _ in range(repeats)]
+
+    for i in range(repeats):
+        clear_cache()
+        start[i].record(stream)
+        op()
+        end[i].record(stream)
+
+    torch.cuda.synchronize()
+    return statistics.median([s.elapsed_time(e) for s, e in zip(start, end)])
+
 if __name__ == "__main__":
-    q = torch.randn((1, 1, 1024, 64), dtype=torch.bfloat16).add(0.01).to('cuda')
-    k = torch.randn((1, 1, 1024, 64), dtype=torch.bfloat16).add(0.01).to('cuda')
-    v = torch.randn((1, 1, 1024, 64), dtype=torch.bfloat16).add(0.01).to('cuda')
-    o = torch.zeros((1, 1, 1024, 64), dtype=torch.bfloat16).to('cuda')
+    q = torch.randn((4, 8, 1024, 64), dtype=torch.bfloat16).add(0.5).to('cuda')
+    k = torch.randn((4, 8, 1024, 64), dtype=torch.bfloat16).add(0.5).to('cuda')
+    v = torch.randn((4, 8, 1024, 64), dtype=torch.bfloat16).add(0.5).to('cuda')
+    o = torch.zeros((4, 8, 1024, 64), dtype=torch.bfloat16).to('cuda')
 
     [q_cute, k_cute, v_cute, o_cute] = [convert_from_dlpack(x) for x in (q, k, v, o)]
     current_stream = cuda.CUstream(torch.cuda.current_stream().cuda_stream)
 
-    fa = FlashSM90(qk_mn=(128, 256), cluster_size_m=2)
+    fa = FlashSM90(qk_mn=(128, 256), cluster_size_m=1)
     compiled_fa = cute.compile(fa, q_cute, k_cute, v_cute, o_cute, 0.125, current_stream)
     compiled_fa(q_cute, k_cute, v_cute, o_cute, 0.125, current_stream)
 
+    # profile_ms(lambda: compiled_fa(q_cute, k_cute, v_cute, o_cute, 0.125, current_stream), repeats=30)
+
     ref = F.scaled_dot_product_attention(q, k, v)
     n_incorrect = o.numel() - ((o - ref).abs() < 0.01).sum().item()
-    print('allclose:', torch.allclose(ref, o, atol=1e-1, rtol=1e-2)) # look at docs for torch.testing.assert_close for details
+    print('allclose:', torch.allclose(ref, o, atol=1e-2, rtol=1e-2)) # look at docs for torch.testing.assert_close for details
     print('max error:', torch.max((o-ref).abs()).item())
     print(f'{n_incorrect=}')

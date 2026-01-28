@@ -37,6 +37,8 @@
 
 ## Debugging
 - we were doing `softmax.online_softmax` late. We declared `tOrp_acc` and then stored `tOrP` in and THEN did softmax, so WAW dependency was not preserved.
+- seems like there's a problem that persists over runs. Seems to be related to cluster since cluster=0 never triggers it.
+- it totally has something to do with the fact that I have an mbarrier for qk that is doing both, doesn't it...
 
 ## Other stuff
 - They have SeqlenInfo and BlockInfo for block-sparsity or whatever
