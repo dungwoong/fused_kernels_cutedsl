@@ -144,7 +144,6 @@ class FlashSM90:
         )
         tile_sched_params = SingleTileScheduler.to_underlying_arguments(tile_sched_args)
         grid_dim = SingleTileScheduler.get_grid_shape(tile_sched_params)
-        print(grid_dim)
         softmax_scale_log2 = softmax_scale * math.log2(math.e)
 
         self.kernel(
@@ -540,19 +539,19 @@ def profile_ms(op, repeats=30):
     return statistics.median([s.elapsed_time(e) for s, e in zip(start, end)])
 
 if __name__ == "__main__":
-    q = torch.randn((4, 8, 1024, 64), dtype=torch.bfloat16).add(0.5).to('cuda')
-    k = torch.randn((4, 8, 1024, 64), dtype=torch.bfloat16).add(0.5).to('cuda')
-    v = torch.randn((4, 8, 1024, 64), dtype=torch.bfloat16).add(0.5).to('cuda')
-    o = torch.zeros((4, 8, 1024, 64), dtype=torch.bfloat16).to('cuda')
+    q = torch.randn((16, 16, 1024, 64), dtype=torch.bfloat16).add(0.5).to('cuda')
+    k = torch.randn((16, 16, 1024, 64), dtype=torch.bfloat16).add(0.5).to('cuda')
+    v = torch.randn((16, 16, 1024, 64), dtype=torch.bfloat16).add(0.5).to('cuda')
+    o = torch.zeros((16, 16, 1024, 64), dtype=torch.bfloat16).to('cuda')
 
     [q_cute, k_cute, v_cute, o_cute] = [convert_from_dlpack(x) for x in (q, k, v, o)]
     current_stream = cuda.CUstream(torch.cuda.current_stream().cuda_stream)
 
-    fa = FlashSM90(qk_mn=(128, 256), cluster_size_m=1)
+    fa = FlashSM90(qk_mn=(128, 256), cluster_size_m=2)
     compiled_fa = cute.compile(fa, q_cute, k_cute, v_cute, o_cute, 0.125, current_stream)
     compiled_fa(q_cute, k_cute, v_cute, o_cute, 0.125, current_stream)
 
-    # profile_ms(lambda: compiled_fa(q_cute, k_cute, v_cute, o_cute, 0.125, current_stream), repeats=30)
+    profile_ms(lambda: compiled_fa(q_cute, k_cute, v_cute, o_cute, 0.125, current_stream), repeats=30)
 
     ref = F.scaled_dot_product_attention(q, k, v)
     n_incorrect = o.numel() - ((o - ref).abs() < 0.01).sum().item()
