@@ -55,7 +55,7 @@ def run(bs, nh, lq, lkv, head_dim):
     reimpl = attn_reimpl(Q, K, V)
     print(output.shape)
     
-    print(output - reimpl)
+    # print(output - reimpl)
 
     with sdpa_kernel([SDPBackend.FLASH_ATTENTION]):
         time.sleep(1)

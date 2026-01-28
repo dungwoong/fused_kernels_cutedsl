@@ -4,6 +4,8 @@ import math
 import cuda.bindings.driver as cuda
 
 import torch
+import torch.nn.functional as F
+from torch.nn.attention import SDPBackend, sdpa_kernel
 from triton import runtime
 import functools
 import statistics
@@ -17,21 +19,30 @@ import io
 import sys
 import traceback
 
-from gemm import GemmSM90
+from attn import FlashSM90
 
 torch.manual_seed(42)
 
 # I don't have pytest on my sif so I'll try something manual
 
-def _get_tflops(m, n, k, time_ms):
-    flops = 2 * m * n * k
-    return (flops / (time_ms / 1e3)) / 1e12
+def get_tflops(bs, nh, lq, lkv, head_dim, head_dim_v, latency_ms):
+    qk = bs * nh * (2 * lq * lkv * head_dim)
+    smx = bs * nh * (4 * lq * lkv) # max + sub + exp + sum + div, but codebases(e.g. thunderkittens) use 4
+    kv = bs * nh * (2 * lq * lkv * head_dim_v)
+    return (qk + smx + kv) / latency_ms / 1e9
 
-def _get_abc(m, n, k):
-    a = torch.randn((m, k), dtype=torch.bfloat16).to('cuda')
-    b = torch.randn((n, k), dtype=torch.bfloat16).to('cuda')
-    c = torch.empty((m, n), dtype=torch.bfloat16).to('cuda')
-    return a, b, c
+# if output has a mean of 0, we get a large relative error
+def generate_input(*shape):
+    return torch.randn(shape, dtype=torch.bfloat16).add(0.5).to('cuda')
+
+# torch SDPA requires head_dim and head_dim_v to be the same
+def _get_qkvo(bs, nh, lq, lkv, head_dim, head_dim_v=None):
+    head_dim_v = head_dim if head_dim_v is None else head_dim_v
+    q = generate_input(bs, nh, lq, head_dim)
+    k = generate_input(bs, nh, lkv, head_dim_v)
+    v = generate_input(bs, nh, lkv, head_dim_v)
+    o = torch.empty((bs, nh, lq, head_dim_v), dtype=torch.bfloat16).to('cuda')
+    return q, k, v, o
 
 def profile_ms(op, repeats=30):
 
@@ -58,44 +69,43 @@ def profile_ms(op, repeats=30):
     return statistics.median([s.elapsed_time(e) for s, e in zip(start, end)])
 
 convert_from_dlpack = lambda tensor: (
-        from_dlpack(tensor.detach(), assumed_align=16).mark_compact_shape_dynamic(
-            mode=0, stride_order=(0, 1)
-        )
+        from_dlpack(tensor.detach(), assumed_align=16)
     )
 
 # just run pytest -s to collect outputs
 # TODO this does not work for hung outputs on the GPU, so beware...
-def _run_test_impl(gemm, m, n, k, tag):
-    a, b, c = _get_abc(m, n, k)
-    ref = a @ b.t()
-    a_cute, b_cute, c_cute = [convert_from_dlpack(x) for x in (a, b, c)]
+def _run_test_impl(fa, bs, nh, lq, lkv, head_dim, head_dim_v=None, tag="attn"):
+    q, k, v, o= _get_qkvo(bs, nh, lq, lkv, head_dim, head_dim_v)
+    ref = F.scaled_dot_product_attention(q, k, v)
+    [q_cute, k_cute, v_cute, o_cute] = [convert_from_dlpack(x) for x in (q, k, v, o)]
     current_stream = cuda.CUstream(torch.cuda.current_stream().cuda_stream)
-    compiled_gemm = cute.compile(gemm, a_cute, b_cute, c_cute, current_stream)
-    compiled_gemm(a_cute, b_cute, c_cute, current_stream)
-    assert torch.allclose(ref, c), f'Incorrect. Max abs diff: {torch.max((c - ref).abs()).item()}\n{ref}\n{c}'
+    inv_sqrt_d = q.shape[-1]**-0.5
+    compiled_fa = cute.compile(fa, q_cute, k_cute, v_cute, o_cute, inv_sqrt_d, current_stream)
+    compiled_fa(q_cute, k_cute, v_cute, o_cute, inv_sqrt_d, current_stream)
     
-    time_ms = profile_ms(lambda: compiled_gemm(a_cute, b_cute, c_cute, current_stream))
-    print(f'\n[{tag}] t={time_ms}ms, TFLOPS={_get_tflops(m, n, k, time_ms)}')
+    # TODO consider choosing a different tolerance
+    assert torch.allclose(ref, o, atol=1e-1, rtol=1e-2), f'Incorrect. Max abs diff: {torch.max((o - ref).abs()).item()}'
+    
+    time_ms = profile_ms(lambda: compiled_fa(q_cute, k_cute, v_cute, o_cute, inv_sqrt_d, current_stream))
+    print(f'\n[{tag}] t={time_ms}ms, TFLOPS={get_tflops(bs, nh, lq, lkv, head_dim, head_dim_v, time_ms)}')
 
-def _run_test_impl_torch(m, n, k):
-    tag = f'torch m{m}n{n}k{k}'
-    a, b, c = _get_abc(m, n, k)
-    bt = b.t()
+def _run_test_impl_torch(bs, nh, lq, lkv, head_dim, sdp_backend):
+    t = 'SDP.cudnn' if sdp_backend == SDPBackend.CUDNN_ATTENTION else 'SDP.flash'
+    tag = f'{t} bs{bs} nh{nh} lq{lq} lkv{lkv} head_dim{head_dim}'
+    q, k, v, _ = _get_qkvo(bs, nh, lq, lkv, head_dim)
 
-    @torch.compile
-    def fn(a_, bt_):
-        return a_ @ bt_
-    time_ms = profile_ms(lambda: fn(a, bt))
-    print(f'\n[{tag}] t={time_ms}ms, TFLOPS={_get_tflops(m, n, k, time_ms)}')
+    with sdpa_kernel([sdp_backend]):
+        time_ms = profile_ms(lambda: F.scaled_dot_product_attention(q, k, v))
+    print(f'\n[{tag}] t={time_ms}ms, TFLOPS={get_tflops(bs, nh, lq, lkv, head_dim, head_dim, time_ms)}')
 
 
-def async_wrapper(queue, gemm, m, n, k, tag):
+def async_wrapper(queue, fa, bs, nh, lq, lkv, head_dim, head_dim_v, tag):
     buf = io.StringIO()
     old_out, old_error = sys.stdout, sys.stderr
     sys.stdout, sys.stderr = buf, buf
     try:
         torch.cuda.init()
-        _run_test_impl(gemm, m, n, k, tag)
+        _run_test_impl(fa, bs, nh, lq, lkv, head_dim, head_dim_v, tag)
         queue.put(('ok', buf.getvalue(), ""))
     except Exception as e:
         queue.put(('error', str(e), traceback.format_exc()))
@@ -103,10 +113,10 @@ def async_wrapper(queue, gemm, m, n, k, tag):
         sys.stdout, sys.stderr = old_out, old_error
     
 
-def run_test(gemm, m, n, k, tag, timeout=30):
+def run_test(fa, bs, nh, lq, lkv, head_dim, head_dim_v, tag, timeout=30):
     ctx = mp.get_context('spawn')
     q = ctx.Queue()
-    p = ctx.Process(target=async_wrapper, args=(q, gemm, m, n, k, tag))
+    p = ctx.Process(target=async_wrapper, args=(q, fa, bs, nh, lq, lkv, head_dim, head_dim_v, tag, tag))
     p.start()
 
     p.join(timeout=timeout)
@@ -122,68 +132,16 @@ def run_test(gemm, m, n, k, tag, timeout=30):
         pytest.fail(f"{payload}")
     print(f'{payload}, {logs}')
 
+def test_cudnn_basic():
+    _run_test_impl_torch(16, 16, 1024, 1024, 64, SDPBackend.CUDNN_ATTENTION)
 
-def test_pytorch():
-    _run_test_impl_torch(4096, 4096, 4096)
+def test_flash_basic():
+    _run_test_impl_torch(16, 16, 1024, 1024, 64, SDPBackend.FLASH_ATTENTION)
 
 def test_basic():
-    gm = GemmSM90(tile_shape_mn=(128, 256), 
-                    epi_tile_mn=(128, 32),
-                    cluster_shape_mnk=(2, 1, 1), 
-                    atom_layout_mn=(2, 1),
-                    ab_stage=3,
-                    reuse_ab=False,
-                    is_persistent=True,
-                    gemm_n_prologue=1)
-    run_test(gm, 4096, 4096, 4096, 'gemm')
+    fa = FlashSM90(qk_mn=(128, 256), cluster_size_m=2)
+    run_test(fa, 16, 16, 1024, 1024, 64, 64, 'basic')
 
-def test_multicast_dims():
-    gm = GemmSM90(
-        tile_shape_mn=(128, 256),
-        epi_tile_mn=(128, 32),
-        cluster_shape_mnk=(2, 2, 1),
-        atom_layout_mn=(2, 1),
-        ab_stage=3,
-        reuse_ab=False,
-        is_persistent=True,
-        gemm_n_prologue=1,
-    )
-    run_test(gm, 4096, 4096, 4096, 'gemm_cluster22')
 
-def test_atom_layout_horizontal():
-    gm = GemmSM90(
-        tile_shape_mn=(128, 256),
-        epi_tile_mn=(64, 256), # need to cover entire n dim so we iterate the epi tile downwards
-        # otherwise we'd have to redo the epilogue
-        cluster_shape_mnk=(1, 1, 1),
-        atom_layout_mn=(1, 2),
-        ab_stage=3,
-        reuse_ab=False,
-        is_persistent=True,
-        gemm_n_prologue=1,
-    )
-    run_test(gm, 4096, 4096, 4096, 'gemm_atom12')
-
-def test_gemm_no_prologue():
-    gm = GemmSM90(tile_shape_mn=(128, 256), 
-                    epi_tile_mn=(128, 32),
-                    cluster_shape_mnk=(2, 1, 1), 
-                    atom_layout_mn=(2, 1),
-                    ab_stage=3,
-                    reuse_ab=False,
-                    is_persistent=True,
-                    gemm_n_prologue=0)
-    run_test(gm, 4096, 4096, 4096, 'gemm_no_prologue_mma')
-
-def test_gemm_reuse_ab():
-    gm = GemmSM90(tile_shape_mn=(128, 256), 
-                    epi_tile_mn=(128, 32),
-                    cluster_shape_mnk=(2, 1, 1), 
-                    atom_layout_mn=(2, 1),
-                    ab_stage=3,
-                    reuse_ab=True,
-                    is_persistent=False,
-                    gemm_n_prologue=0)
-    run_test(gm, 4096, 4096, 4096, 'gemm_reuseab_no_persistent')
 
 # run pytest -s tests.py to collect print outputs

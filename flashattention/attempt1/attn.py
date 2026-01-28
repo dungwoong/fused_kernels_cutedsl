@@ -67,12 +67,10 @@ def printc(x):
 class FlashSM90:
     def __init__(
         self,
-        dtype,
         qk_mn: Tuple[int, int],
         cluster_size_m: int=1,
         num_stages: int=2,
         ):
-        self.dtype = dtype
         self.acc_dtype = cutlass.Float32
         self.num_stages = num_stages
         self.tile_m, self.tile_n = qk_mn
@@ -81,6 +79,7 @@ class FlashSM90:
         self.num_mcast = cluster_size_m
 
         # compile time, later
+        self.dtype = None
         self.num_mma_threads = None
         self.num_mma_warpgroups = None
         self.num_mma_regs = None
@@ -107,6 +106,7 @@ class FlashSM90:
                 mO: cute.Tensor,
                 softmax_scale: cutlass.Float32, # 1/sqrt(D)
                 stream: cuda.CUstream):
+        self.dtype = mQ.element_type
         self.hdimk = cute.size(mQ, mode=[3])
         self.hdimv = cute.size(mV, mode=[3])
         
@@ -501,19 +501,20 @@ def attn_reimpl(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor):
     pv = (p @ v)
     return pv * recip
 
+convert_from_dlpack = lambda tensor: (
+        from_dlpack(tensor.detach(), assumed_align=16)
+    )
+
 if __name__ == "__main__":
     q = torch.randn((1, 1, 1024, 64), dtype=torch.bfloat16).add(0.01).to('cuda')
     k = torch.randn((1, 1, 1024, 64), dtype=torch.bfloat16).add(0.01).to('cuda')
     v = torch.randn((1, 1, 1024, 64), dtype=torch.bfloat16).add(0.01).to('cuda')
     o = torch.zeros((1, 1, 1024, 64), dtype=torch.bfloat16).to('cuda')
 
-    convert_from_dlpack = lambda tensor: (
-        from_dlpack(tensor.detach(), assumed_align=16)
-    )
     [q_cute, k_cute, v_cute, o_cute] = [convert_from_dlpack(x) for x in (q, k, v, o)]
     current_stream = cuda.CUstream(torch.cuda.current_stream().cuda_stream)
 
-    fa = FlashSM90(dtype=cutlass.BFloat16, qk_mn=(128, 256), cluster_size_m=2)
+    fa = FlashSM90(qk_mn=(128, 256), cluster_size_m=2)
     compiled_fa = cute.compile(fa, q_cute, k_cute, v_cute, o_cute, 0.125, current_stream)
     compiled_fa(q_cute, k_cute, v_cute, o_cute, 0.125, current_stream)
 
