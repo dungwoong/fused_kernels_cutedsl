@@ -147,7 +147,6 @@ class FlashSM90:
 
 
         # we should be ready to do the kernel now
-        print("launching kernel")
         self.kernel(tma_tensor_q, tma_tensor_k, tma_tensor_v, tma_tensor_o, tma_atom_q, tma_atom_k, tma_atom_v, tma_atom_o, self.sQ_layout, self.sK_layout, self.sV_layout, self.sO_layout, tiled_mma_qk, tiled_mma_pv, n_block_max, softmax_scale_log2, SingleTileScheduler, tile_sched_params).launch(grid=grid_dim, block=[self.num_threads, 1, 1], cluster=[self.num_mcast, 1, 1], stream=stream)
     
     @cute.kernel
@@ -162,7 +161,6 @@ class FlashSM90:
         First wg(0-4) --> producer
         other wg --> consumer
         """
-        print0("entered kernel")
         warp_idx = cute.arch.make_warp_uniform(cute.arch.warp_idx())
 
         if warp_idx == 0:
@@ -204,7 +202,6 @@ class FlashSM90:
 
         TileSchedulerCls = partial(TileScheduler.create, tile_sched_params)
 
-        print0("at branching")
         if warp_idx < 4:
             cute.arch.warpgroup_reg_dealloc(self.num_producer_regs)
             self.load(
@@ -312,7 +309,6 @@ class FlashSM90:
             kv_consumer_state = self.mma_one_n_block(pipeline_k, pipeline_v, kv_consumer_state, mma_qk, tSrQ, tSrK, softmax, tOrP, acc_o, mma_pv, tOrVt, True, False)
         # TODO need epilogue here now, then we can test correctness with doublegemm
         row_scale = softmax.finalize()
-        printc(row_scale)
         softmax.rescale_O(acc_o, row_scale)
         self.epilogue(acc_o, sO, mO, tma_atom_o, mma_pv, tidx, m_block, head_idx, batch_idx)
     
@@ -335,10 +331,9 @@ class FlashSM90:
 
         # TODO softmax here, they have a softmax.online_softmax
         # they call PTX directly to convert to f16 damnn
+        row_scale = softmax.online_softmax(p_acc, is_first=softmax_is_first) # don't check inf for now
         tOrP_acc = cute.make_tensor(p_acc.iterator, my_utils.convert_layout_acc_frgA(p_acc.layout))
         tOrP.store(tOrP_acc.load().to(self.dtype))
-
-        row_scale = softmax.online_softmax(p_acc, is_first=softmax_is_first) # don't check inf for now
         softmax.rescale_O(acc_o, row_scale)
 
         pipeline_v.consumer_wait(kv_consumer_state)
@@ -515,8 +510,8 @@ def attn_reimpl(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor):
     p = p * ((q.size(-1)**-0.5) * math.log2(math.e))
     p = torch.exp2(p - torch.max(p, dim=-1, keepdim=True).values)
     recip = torch.reciprocal(torch.sum(p, dim=-1, keepdim=True))
-    print(recip)
-    return (p @ v) * recip
+    pv = (p @ v)
+    return pv * recip
 
 if __name__ == "__main__":
     q = torch.randn((1, 1, 1024, 64), dtype=torch.bfloat16).add(0.01).to('cuda')

@@ -35,4 +35,7 @@
 - For loop over `n_tile`: 2132 and surrounding
 - One loop helper fn: 2302 `mma_one_n_block`
 
+## Debugging
+- we were doing `softmax.online_softmax` late. We declared `tOrp_acc` and then stored `tOrP` in and THEN did softmax, so WAW dependency was not preserved.
+
 Softmax can run, need to see if it's correct
