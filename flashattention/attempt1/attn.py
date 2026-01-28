@@ -445,12 +445,14 @@ class FlashSM90:
             for layout in (self.sQ_layout, self.sK_layout, self.sV_layout)
         ]
 
+        mbar_ptr_Q_struct = cute.struct.MemRange[cutlass.Int64, 1]
         mbar_ptr_K_struct = cute.struct.MemRange[cutlass.Int64, self.num_stages * 2]
         mbar_ptr_V_struct = cute.struct.MemRange[cutlass.Int64, self.num_stages * 2]
 
         # I think we reuse Q for O? Not sure
         @cute.struct
         class SharedStorage:
+            mbar_q: mbar_ptr_Q_struct
             mbar_k: mbar_ptr_K_struct
             mbar_v: mbar_ptr_V_struct
             sV: sV_struct
