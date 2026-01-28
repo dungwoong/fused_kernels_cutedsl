@@ -76,7 +76,6 @@ class FlashSM90:
         self.acc_dtype = cutlass.Float32
         self.num_stages = num_stages
         self.tile_m, self.tile_n = qk_mn
-        self.mnk_qk = (self.tile_m, self.tile_n, self.hdimk)
         self.buffer_align_bytes = 1024
         self.is_mcast = cluster_size_m > 1
         self.num_mcast = cluster_size_m
@@ -120,8 +119,8 @@ class FlashSM90:
 
         assert self.num_mma_warpgroups in (1, 2, 3)
 
-        self.num_mma_regs = (256, 240, 160)[self.num_mma_warpgroups - 1]
-        self.num_producer_regs = (56, 24, 32)[self.num_mma_warpgroups - 1]
+        self.num_mma_regs = (256, 240, 160)[int(self.num_mma_warpgroups - 1)]
+        self.num_producer_regs = (56, 24, 32)[int(self.num_mma_warpgroups - 1)]
         
         # allows you to debug print
         # self.num_mma_regs = 232
@@ -515,7 +514,8 @@ if __name__ == "__main__":
     current_stream = cuda.CUstream(torch.cuda.current_stream().cuda_stream)
 
     fa = FlashSM90(dtype=cutlass.BFloat16, qk_mn=(128, 256), cluster_size_m=2)
-    fa(q_cute, k_cute, v_cute, o_cute, 0.125, current_stream)
+    compiled_fa = cute.compile(fa, q_cute, k_cute, v_cute, o_cute, 0.125, current_stream)
+    compiled_fa(q_cute, k_cute, v_cute, o_cute, 0.125, current_stream)
 
     ref = F.scaled_dot_product_attention(q, k, v)
     n_incorrect = o.numel() - ((o - ref).abs() < 0.01).sum().item()
