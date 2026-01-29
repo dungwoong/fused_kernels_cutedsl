@@ -167,6 +167,7 @@ class FlashSM90:
         other wg --> consumer
         """
         warp_idx = cute.arch.make_warp_uniform(cute.arch.warp_idx())
+        tidx, _, _ = cute.arch.thread_idx()
 
         if warp_idx == 0:
             for tma_atom in (tma_atom_q, tma_atom_v, tma_atom_o):
@@ -178,8 +179,8 @@ class FlashSM90:
         pipeline_kv_producer_group = pipeline.CooperativeGroup(pipeline.Agent.Thread, size=1)
         pipeline_kv_consumer_group = pipeline.CooperativeGroup(pipeline.Agent.Thread, (self.num_mma_threads // cute.arch.WARP_SIZE) * self.num_mcast)
         mbar_ptr_Q = storage.mbar_q.data_ptr()
-        if warp_idx == 1:
-            cute.arch.mbarrier_init(mbar_ptr_Q, 1) # number of arrivals
+        if warp_idx == 0:
+            cute.arch.mbarrier_init(mbar_ptr_Q.align(min_align=8), 1) # number of arrivals
 
         pipeline_k = PipelineTmaAsync.create(
             barrier_storage=storage.mbar_k.data_ptr(),
@@ -199,6 +200,9 @@ class FlashSM90:
             cta_layout_vmnk=cute.make_layout((1, self.num_mcast, 1, 1)),
             defer_sync=False,
         )
+
+        pipeline_init_arrive(cluster_shape_mn=(self.num_mcast, 1), is_relaxed=True)
+        pipeline_init_wait(cluster_shape_mn=(self.num_mcast))
 
         sQ = storage.sQ.get_tensor(sQ_layout.outer, swizzle=sQ_layout.inner)
         sK = storage.sK.get_tensor(sK_layout.outer, swizzle=sK_layout.inner)
@@ -252,7 +256,7 @@ class FlashSM90:
             gV = cute.local_tile(mV_curr, (self.tile_n, self.hdimv), (None, 0))
             
             load_Q, _, _ = my_utils.tma_get_copy_fn(
-                tma_atom_q, 0, cute.make_layout(1), gQ, sQ, single_stage=True
+                tma_atom_q, 0, cute.make_layout((1, 1)), gQ, sQ, single_stage=True, mcast_mask=0
             )
 
             load_K, _, _ = my_utils.tma_get_copy_fn(
@@ -265,7 +269,7 @@ class FlashSM90:
 
             # 1824: Add Q to pipeline K for first iter, no need for additional barrier
             n_block = n_block_max - 1
-            if tidx == 0:
+            with cute.arch.elect_one():
                 cute.arch.mbarrier_arrive_and_expect_tx(mbar_q, self.tma_copy_bytes["Q"])
             load_Q(tma_bar_ptr=mbar_q) # tma_bar_ptr=pipeline_k.producer_get_barrier(kv_producer_state))
             pipeline_k.producer_acquire(
@@ -311,7 +315,7 @@ class FlashSM90:
         softmax = Softmax.create(softmax_scale_log2, num_rows=acc_o.shape[0][0] * acc_o.shape[1])
         # no need to softmax.reset, calling with first_block takes care of it
 
-        cute.arch.mbarrier_wait(mbar_q, 0) # phase should flip every time, start at 0
+        cute.arch.mbarrier_wait(mbar_q, phase=Int32(0)) # phase should flip every time, start at 0
         kv_consumer_state = self.mma_one_n_block(pipeline_k, pipeline_v, kv_consumer_state, mma_qk, tSrQ, tSrK, softmax, tOrP, acc_o, mma_pv, tOrVt, False, True)
         for _ in cutlass.range(n_block_max-1, unroll=1):
             kv_consumer_state = self.mma_one_n_block(pipeline_k, pipeline_v, kv_consumer_state, mma_qk, tSrQ, tSrK, softmax, tOrP, acc_o, mma_pv, tOrVt, True, False)
@@ -547,10 +551,12 @@ def profile_ms(op, repeats=30):
     return statistics.median([s.elapsed_time(e) for s, e in zip(start, end)])
 
 if __name__ == "__main__":
-    q = torch.randn((16, 16, 1024, 64), dtype=torch.bfloat16).add(0.5).to('cuda')
-    k = torch.randn((16, 16, 1024, 64), dtype=torch.bfloat16).add(0.5).to('cuda')
-    v = torch.randn((16, 16, 1024, 64), dtype=torch.bfloat16).add(0.5).to('cuda')
-    o = torch.zeros((16, 16, 1024, 64), dtype=torch.bfloat16).to('cuda')
+    print("starting")
+    bs, h = 4, 8
+    q = torch.randn((bs, h, 1024, 64), dtype=torch.bfloat16).add(0.5).to('cuda')
+    k = torch.randn((bs, h, 1024, 64), dtype=torch.bfloat16).add(0.5).to('cuda')
+    v = torch.randn((bs, h, 1024, 64), dtype=torch.bfloat16).add(0.5).to('cuda')
+    o = torch.zeros((bs, h, 1024, 64), dtype=torch.bfloat16).to('cuda')
 
     [q_cute, k_cute, v_cute, o_cute] = [convert_from_dlpack(x) for x in (q, k, v, o)]
     current_stream = cuda.CUstream(torch.cuda.current_stream().cuda_stream)
