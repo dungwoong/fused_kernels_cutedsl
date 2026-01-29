@@ -179,16 +179,8 @@ class FlashSM90:
         pipeline_kv_producer_group = pipeline.CooperativeGroup(pipeline.Agent.Thread, size=1)
         pipeline_kv_consumer_group = pipeline.CooperativeGroup(pipeline.Agent.Thread, (self.num_mma_threads // cute.arch.WARP_SIZE) * self.num_mcast)
         mbar_ptr_Q = storage.mbar_q.data_ptr()
-        
-        pipeline_q = PipelineTmaAsync.create(
-            barrier_storage=storage.mbar_q.data_ptr(),
-            num_stages=1,
-            producer_group=pipeline_kv_producer_group,
-            consumer_group=pipeline.CooperativeGroup(pipeline.Agent.Thread, (self.num_mma_threads // cute.arch.WARP_SIZE)),
-            tx_count=self.tma_copy_bytes["Q"],
-            cta_layout_vmnk=cute.make_layout((1, self.num_mcast, 1, 1)),
-            defer_sync=False,
-        )
+        if warp_idx == 0:
+            cute.arch.mbarrier_init(mbar_ptr_Q.align(min_align=8), 1) # number of arrivals
 
         pipeline_k = PipelineTmaAsync.create(
             barrier_storage=storage.mbar_k.data_ptr(),
@@ -226,19 +218,19 @@ class FlashSM90:
                 mQ, mK, mV, 
                 sQ, sK, sV, 
                 tma_atom_q, tma_atom_k, tma_atom_v, 
-                pipeline_q, pipeline_k, pipeline_v, 
+                mbar_ptr_Q, pipeline_k, pipeline_v, 
                 n_block_max, TileSchedulerCls)
         else:
             tidx, _, _ = cute.arch.thread_idx()
             tidx = tidx - 128
             cute.arch.warpgroup_reg_alloc(self.num_mma_regs)
-            self.mma(n_block_max, sQ, sK, sVt, sO, mO, pipeline_q, pipeline_k, pipeline_v, mma_qk, mma_pv, tma_atom_o, tidx, softmax_scale_log2, TileSchedulerCls)
+            self.mma(n_block_max, sQ, sK, sVt, sO, mO, mbar_ptr_Q, pipeline_k, pipeline_v, mma_qk, mma_pv, tma_atom_o, tidx, softmax_scale_log2, TileSchedulerCls)
     
     @cute.jit
     def load(self, mQ: cute.Tensor, mK: cute.Tensor, mV: cute.Tensor, 
              sQ: cute.Tensor, sK: cute.Tensor, sV: cute.Tensor, 
              tma_atom_q: cute.CopyAtom, tma_atom_k: cute.CopyAtom, tma_atom_v: cute.CopyAtom, 
-             pipeline_q: pipeline.PipelineAsync, pipeline_k: pipeline.PipelineAsync, pipeline_v: pipeline.PipelineAsync, n_block_max: int, TileSchedulerCls: Callable):
+             mbar_q: cute.Pointer, pipeline_k: pipeline.PipelineAsync, pipeline_v: pipeline.PipelineAsync, n_block_max: int, TileSchedulerCls: Callable):
         tidx, _, _ = cute.arch.thread_idx()
         warp_idx_in_wg = cute.arch.make_warp_uniform(cute.arch.warp_idx()) % 4
         cta_rank_in_cluster = cute.arch.make_warp_uniform(
@@ -251,7 +243,6 @@ class FlashSM90:
 
         if warp_idx_in_wg == 0:
             kv_producer_state = pipeline.make_pipeline_state(pipeline.PipelineUserType.Producer, self.num_stages)
-            q_producer_state = pipeline.make_pipeline_state(pipeline.PipelineUserType.Producer, 1)
             tile_scheduler = TileSchedulerCls()
             work_tile = tile_scheduler.initial_work_tile_info()
 
@@ -278,8 +269,9 @@ class FlashSM90:
 
             # 1824: Add Q to pipeline K for first iter, no need for additional barrier
             n_block = n_block_max - 1
-            pipeline_q.producer_acquire(q_producer_state)
-            load_Q(tma_bar_ptr=pipeline_q.producer_get_barrier(q_producer_state)) # tma_bar_ptr=pipeline_k.producer_get_barrier(kv_producer_state))
+            with cute.arch.elect_one():
+                cute.arch.mbarrier_arrive_and_expect_tx(mbar_q, self.tma_copy_bytes["Q"])
+            load_Q(tma_bar_ptr=mbar_q) # tma_bar_ptr=pipeline_k.producer_get_barrier(kv_producer_state))
             pipeline_k.producer_acquire(
                 kv_producer_state,
                 extra_tx_count=0 # self.tma_copy_bytes["Q"]
@@ -303,9 +295,8 @@ class FlashSM90:
     def mma(self, n_block_max: int, 
             sQ: cute.Tensor, sK: cute.Tensor, sVt: cute.Tensor, sO: cute.Tensor,
             mO: cute.Tensor,
-            pipeline_q: pipeline.PipelineAsync, pipeline_k: pipeline.PipelineAsync, pipeline_v: pipeline.PipelineAsync, mma_qk: cute.TiledMma, mma_pv: cute.TiledMma, tma_atom_o: cute.CopyAtom, tidx: Int32, softmax_scale_log2: cutlass.Float32, TileSchedulerCls: Callable):
+            mbar_q: cute.Pointer, pipeline_k: pipeline.PipelineAsync, pipeline_v: pipeline.PipelineAsync, mma_qk: cute.TiledMma, mma_pv: cute.TiledMma, tma_atom_o: cute.CopyAtom, tidx: Int32, softmax_scale_log2: cutlass.Float32, TileSchedulerCls: Callable):
         kv_consumer_state = pipeline.make_pipeline_state(pipeline.PipelineUserType.Consumer, self.num_stages)
-        q_consumer_state = pipeline.make_pipeline_state(pipeline.PipelineUserType.Consumer, 1)
         tile_scheduler = TileSchedulerCls()
         work_tile = tile_scheduler.initial_work_tile_info()
         m_block, head_idx, batch_idx = work_tile.tile_idx
@@ -324,7 +315,7 @@ class FlashSM90:
         softmax = Softmax.create(softmax_scale_log2, num_rows=acc_o.shape[0][0] * acc_o.shape[1])
         # no need to softmax.reset, calling with first_block takes care of it
 
-        pipeline_q.consumer_wait(q_consumer_state)
+        cute.arch.mbarrier_wait(mbar_q, phase=Int32(0)) # phase should flip every time, start at 0
         kv_consumer_state = self.mma_one_n_block(pipeline_k, pipeline_v, kv_consumer_state, mma_qk, tSrQ, tSrK, softmax, tOrP, acc_o, mma_pv, tOrVt, False, True)
         for _ in cutlass.range(n_block_max-1, unroll=1):
             kv_consumer_state = self.mma_one_n_block(pipeline_k, pipeline_v, kv_consumer_state, mma_qk, tSrQ, tSrK, softmax, tOrP, acc_o, mma_pv, tOrVt, True, False)
@@ -465,7 +456,7 @@ class FlashSM90:
             for layout in (self.sQ_layout, self.sK_layout, self.sV_layout)
         ]
 
-        mbar_ptr_Q_struct = cute.struct.MemRange[cutlass.Int64, 2]
+        mbar_ptr_Q_struct = cute.struct.MemRange[cutlass.Int64, 1]
         mbar_ptr_K_struct = cute.struct.MemRange[cutlass.Int64, self.num_stages * 2]
         mbar_ptr_V_struct = cute.struct.MemRange[cutlass.Int64, self.num_stages * 2]
 
