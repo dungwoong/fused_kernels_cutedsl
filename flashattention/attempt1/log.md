@@ -41,7 +41,8 @@
 Barriers
 - Q is not multicast but K is. This doesn't work when we use the same barrier for both, maybe it's UB I'm not sure.
 - bug only happens if you have clusters(obviously) and when grid is larger than number of SMs. Not sure why.
-- I'll swap it to a separate barrier_q later
+- After swapping to separate barrier_Q, it still works only under the same above conditions. Additionally, if you arrive and expect 0 bytes, everything works for some reason.
+- Maybe the load is the broken component, not the barrier(?)
 
 ## Other stuff
 - They have SeqlenInfo and BlockInfo for block-sparsity or whatever
