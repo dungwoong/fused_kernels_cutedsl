@@ -47,6 +47,10 @@ Barriers
 - THE PROBLEM WAS I NEED PRODUCER TAIL or else you get dangling mbarrier arrive signals after the kernel exit and so if you launch the kernel multiple times in a row I guess you get problems
     - no idea why these specific edge cases would trigger the issues, and other cases wouldn't? Maybe it has something to do with how things were scheduled onto the GPU, so subsequent kernels could actually observe the dangling mbarrier signals or something but at this point I don't really care...
 
+Larger sizes
+- SMEM: I should add a check, but if you get "invalid value" it might be that you tried to allocate too much SMEM
+- Make sure you change 1/sqrt(d) when doing a kernel
+
 ## Other stuff
 - They have SeqlenInfo and BlockInfo for block-sparsity or whatever
 - They can do epilogue in one go since we know it must fit into the staged SMEM. We can think about this as a potential rewrite idk

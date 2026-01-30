@@ -554,12 +554,12 @@ if __name__ == "__main__":
     [q_cute, k_cute, v_cute, o_cute] = [convert_from_dlpack(x) for x in (q, k, v, o)]
     current_stream = cuda.CUstream(torch.cuda.current_stream().cuda_stream)
 
-    fa = FlashSM90(qk_mn=(128, 256), cluster_size_m=2)
-    compiled_fa = cute.compile(fa, q_cute, k_cute, v_cute, o_cute, 0.125, current_stream)
-    compiled_fa(q_cute, k_cute, v_cute, o_cute, 0.125, current_stream)
+    fa = FlashSM90(qk_mn=(128, 128), cluster_size_m=2)
+    compiled_fa = cute.compile(fa, q_cute, k_cute, v_cute, o_cute, 1 / math.sqrt(dim), current_stream)
+    compiled_fa(q_cute, k_cute, v_cute, o_cute, 1 / math.sqrt(dim), current_stream)
 
     do_bench(lambda: compiled_fa(q_cute, k_cute, v_cute, o_cute, 0.125, current_stream), return_mode="median")
-    profile_ms(lambda: compiled_fa(q_cute, k_cute, v_cute, o_cute, 0.125, current_stream), repeats=30)
+    # profile_ms(lambda: compiled_fa(q_cute, k_cute, v_cute, o_cute, 0.125, current_stream), repeats=30)
 
     ref = F.scaled_dot_product_attention(q, k, v)
     n_incorrect = o.numel() - ((o - ref).abs() < 0.01).sum().item()
