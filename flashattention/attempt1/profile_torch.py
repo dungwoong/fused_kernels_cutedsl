@@ -23,6 +23,8 @@ import traceback
 from attn import FlashSM90
 
 torch.manual_seed(42)
+OUTPUT_FILE = open("timings.csv", "w")
+OUTPUT_FILE.write("bs,nh,seqlen,dim,latency_ms,tflops,method")
 
 # I don't have pytest on my sif so I'll try something manual
 
@@ -52,7 +54,10 @@ def _run_test_impl_torch(bs, nh, lq, lkv, head_dim, sdp_backend):
 
     with sdpa_kernel([sdp_backend]):
         time_ms = do_bench(lambda: F.scaled_dot_product_attention(q, k, v))
-    print(f'\n[{tag}] t={time_ms}ms, TFLOPS={get_tflops(bs, nh, lq, lkv, head_dim, head_dim, time_ms)}')
+    tflops = get_tflops(bs, nh, lq, lkv, head_dim, head_dim, time_ms)
+    print(f'\n[{tag}] t={time_ms}ms, TFLOPS={tflops}')
+    assert lq == lkv, 'only one seqlen allowed'
+    OUTPUT_FILE.write(f"{bs},{nh},{lq},{head_dim},{time_ms},{tflops},{t}\n")
 
 def test_cudnn(seqlen=1024, dim=64):
     _run_test_impl_torch(4, 16, seqlen, seqlen, dim, SDPBackend.CUDNN_ATTENTION)
@@ -75,3 +80,5 @@ test_cudnn(2048, 128)
 test_cudnn(4096, 128)
 test_cudnn(8448, 128)
 test_cudnn(16384, 128)
+
+OUTPUT_FILE.close()

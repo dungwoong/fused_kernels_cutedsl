@@ -43,7 +43,24 @@ Barriers
 - bug only happens if you have clusters(obviously) and when grid is larger than number of SMs. Not sure why.
 - After swapping to separate barrier_Q, it still works only under the same above conditions. Additionally, if you arrive and expect 0 bytes, everything works for some reason.
 - Maybe the load is the broken component, not the barrier(?)
+- For some reason when you use that triton clear cache, that triggers the error, no clear cache = no error
+- THE PROBLEM WAS I NEED PRODUCER TAIL or else you get dangling mbarrier arrive signals after the kernel exit and so if you launch the kernel multiple times in a row I guess you get problems
+    - no idea why these specific edge cases would trigger the issues, and other cases wouldn't? Maybe it has something to do with how things were scheduled onto the GPU, so subsequent kernels could actually observe the dangling mbarrier signals or something but at this point I don't really care...
 
 ## Other stuff
 - They have SeqlenInfo and BlockInfo for block-sparsity or whatever
 - They can do epilogue in one go since we know it must fit into the staged SMEM. We can think about this as a potential rewrite idk
+
+This is how you do an mbarrier btw:
+```python
+mbar_ptr_Q_struct = cute.struct.MemRange[cutlass.Int64, 1]
+
+mbar_ptr_Q = storage.mbar_q.data_ptr()
+    if warp_idx == 0: # not sure if min_align is required
+        cute.arch.mbarrier_init(mbar_ptr_Q.align(min_align=8), 1) # number of arrivals
+
+with cute.arch.elect_one():
+    cute.arch.mbarrier_arrive_and_expect_tx(mbar_q, self.tma_copy_bytes["Q"])
+
+cute.arch.mbarrier_wait(mbar_q, phase=Int32(0)) # phase should flip every time, start at 0
+```

@@ -7,6 +7,7 @@ import torch
 import torch.nn.functional as F
 from torch.nn.attention import SDPBackend, sdpa_kernel
 from triton import runtime
+from triton.testing import do_bench
 import functools
 import statistics
 import multiprocessing as mp
@@ -89,7 +90,7 @@ def _run_test_impl(fa, bs, nh, lq, lkv, head_dim, head_dim_v=None, tag="attn"):
     # TODO consider choosing a different tolerance
     assert torch.allclose(ref, o, atol=1e-1, rtol=1e-2), f'Incorrect. Max abs diff: {torch.max((o - ref).abs()).item()}'
     
-    time_ms = profile_ms(lambda: compiled_fa(q_cute, k_cute, v_cute, o_cute, inv_sqrt_d, current_stream))
+    time_ms = do_bench(lambda: compiled_fa(q_cute, k_cute, v_cute, o_cute, inv_sqrt_d, current_stream))
     print(f'\n[{tag}] t={time_ms}ms, TFLOPS={get_tflops(bs, nh, lq, lkv, head_dim, head_dim_v, time_ms)}')
 
 def _run_test_impl_torch(bs, nh, lq, lkv, head_dim, sdp_backend):
@@ -98,7 +99,7 @@ def _run_test_impl_torch(bs, nh, lq, lkv, head_dim, sdp_backend):
     q, k, v, _ = _get_qkvo(bs, nh, lq, lkv, head_dim)
 
     with sdpa_kernel([sdp_backend]):
-        time_ms = profile_ms(lambda: F.scaled_dot_product_attention(q, k, v))
+        time_ms = do_bench(lambda: F.scaled_dot_product_attention(q, k, v))
     print(f'\n[{tag}] t={time_ms}ms, TFLOPS={get_tflops(bs, nh, lq, lkv, head_dim, head_dim, time_ms)}')
 
 
@@ -141,9 +142,17 @@ def test_cudnn_basic():
 def test_flash_basic():
     _run_test_impl_torch(16, 16, 4096, 4096, 64, SDPBackend.FLASH_ATTENTION)
 
-def test_basic():
+def test_basic_cute():
     fa = FlashSM90(qk_mn=(128, 256), cluster_size_m=1)
-    run_test(fa, 16, 16, 4096, 4096, 64, 64, 'basic')
+    run_test(fa, 16, 16, 4096, 4096, 64, 64, 'basic_cute')
+
+def test_basic_cute_128():
+    fa = FlashSM90(qk_mn=(128, 256), cluster_size_m=1)
+    run_test(fa, 16, 16, 4096, 4096, 128, 128, 'basic_cute128')
+
+def test_basic_cluster():
+    fa = FlashSM90(qk_mn=(128, 256), cluster_size_m=2)
+    run_test(fa, 16, 16, 4096, 4096, 64, 64, 'basic_cluster')
 
 
 
