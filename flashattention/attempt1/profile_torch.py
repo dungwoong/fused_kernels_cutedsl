@@ -24,7 +24,7 @@ from attn import FlashSM90
 
 torch.manual_seed(42)
 OUTPUT_FILE = open("timings.csv", "w")
-OUTPUT_FILE.write("bs,nh,seqlen,dim,latency_ms,tflops,method")
+OUTPUT_FILE.write("bs,nh,seqlen,dim,latency_ms,tflops,method\n")
 
 # I don't have pytest on my sif so I'll try something manual
 
