@@ -147,7 +147,7 @@ def test_basic_cute():
     run_test(fa, 16, 16, 4096, 4096, 64, 64, 'basic_cute')
 
 def test_basic_cute_128():
-    fa = FlashSM90(qk_mn=(128, 256), cluster_size_m=1)
+    fa = FlashSM90(qk_mn=(128, 128), cluster_size_m=1) # don't use too much smem!
     run_test(fa, 16, 16, 4096, 4096, 128, 128, 'basic_cute128')
 
 def test_basic_cluster():
