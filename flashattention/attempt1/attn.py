@@ -558,7 +558,7 @@ if __name__ == "__main__":
     compiled_fa = cute.compile(fa, q_cute, k_cute, v_cute, o_cute, 1 / math.sqrt(dim), current_stream)
     compiled_fa(q_cute, k_cute, v_cute, o_cute, 1 / math.sqrt(dim), current_stream)
 
-    do_bench(lambda: compiled_fa(q_cute, k_cute, v_cute, o_cute, 0.125, current_stream), return_mode="median")
+    do_bench(lambda: compiled_fa(q_cute, k_cute, v_cute, o_cute, 1 / math.sqrt(dim), current_stream), return_mode="median")
     # profile_ms(lambda: compiled_fa(q_cute, k_cute, v_cute, o_cute, 0.125, current_stream), repeats=30)
 
     ref = F.scaled_dot_product_attention(q, k, v)

@@ -577,7 +577,7 @@ def profile_ms(op, repeats=30):
 if __name__ == "__main__":
     print("starting")
     bs, h = 16, 16
-    dim = 128
+    dim = 64
     q = torch.randn((bs, h, 1024, dim), dtype=torch.bfloat16).add(0.5).to('cuda')
     k = torch.randn((bs, h, 1024, dim), dtype=torch.bfloat16).add(0.5).to('cuda')
     v = torch.randn((bs, h, 1024, dim), dtype=torch.bfloat16).add(0.5).to('cuda')
