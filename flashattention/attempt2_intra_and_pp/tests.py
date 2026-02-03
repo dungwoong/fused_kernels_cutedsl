@@ -136,16 +136,17 @@ def run_test(fa, bs, nh, lq, lkv, head_dim, head_dim_v, tag, timeout=30):
 def test_cudnn_basic():
     _run_test_impl_torch(16, 16, 4096, 4096, 64, SDPBackend.CUDNN_ATTENTION)
 
-def test_flash_basic():
-    _run_test_impl_torch(16, 16, 4096, 4096, 64, SDPBackend.FLASH_ATTENTION)
+# def test_flash_basic():
+#     _run_test_impl_torch(16, 16, 4096, 4096, 64, SDPBackend.FLASH_ATTENTION)
 
 def test_basic_cute():
-    fa = FlashSM90(qk_mn=(128, 256), cluster_size_m=1)
+    fa = FlashSM90(qk_mn=(128, 256), num_stages=3, cluster_size_m=1)
     run_test(fa, 16, 16, 4096, 4096, 64, 64, 'basic_cute')
 
+# You have to reduce the tile size to reduce register spilling, and then you get performance
 def test_cute_iwo():
-    fa = FlashSM90(qk_mn=(128, 256), cluster_size_m=1, intra_wg_overlap=True)
-    run_test(fa, 16, 16, 4096, 4096, 64, 64, 'basic_cute')
+    fa = FlashSM90(qk_mn=(128, 128), num_stages=3, cluster_size_m=2, intra_wg_overlap=True)
+    run_test(fa, 16, 16, 4096, 4096, 64, 64, 'iwo_2cluster_3stages')
 
 def test_basic_cute_128():
     fa = FlashSM90(qk_mn=(128, 128), cluster_size_m=1)

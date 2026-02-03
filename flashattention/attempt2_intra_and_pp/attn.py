@@ -59,11 +59,17 @@ def printc(x):
     tidx, _, _ = cute.arch.thread_idx()
     bidx, bidy, bidz = cute.arch.block_idx()
     if cutlass.const_expr(isinstance(x, cute.TensorSSA)):
-        if tidx == 128 and bidx == 0 and bidy == 1 and bidz == 3:
+        if tidx == 128 and bidx == 0 and bidy == 0 and bidz == 0:
             cute.print_tensor(x)
     else:
-        if tidx == 128 and bidx == 0 and bidy == 1 and bidz == 3:
+        if tidx == 128 and bidx == 0 and bidy == 0 and bidz == 0:
             cute.printf(x)
+
+def get_tflops(bs, nh, lq, lkv, head_dim, head_dim_v, latency_ms):
+    qk = bs * nh * (2 * lq * lkv * head_dim)
+    smx = bs * nh * (4 * lq * lkv) # max + sub + exp + sum + div, but codebases(e.g. thunderkittens) use 4
+    kv = bs * nh * (2 * lq * lkv * head_dim_v)
+    return (qk + smx + kv) / latency_ms / 1e9
 
 class FlashSM90:
     def __init__(
@@ -650,19 +656,20 @@ if __name__ == "__main__":
     print("starting")
     bs, h = 16, 16
     dim = 64
-    q = torch.randn((bs, h, 1024, dim), dtype=torch.bfloat16).add(0.5).to('cuda')
-    k = torch.randn((bs, h, 1024, dim), dtype=torch.bfloat16).add(0.5).to('cuda')
-    v = torch.randn((bs, h, 1024, dim), dtype=torch.bfloat16).add(0.5).to('cuda')
-    o = torch.zeros((bs, h, 1024, dim), dtype=torch.bfloat16).to('cuda')
+    seqlen = 1024
+    q = torch.randn((bs, h, seqlen, dim), dtype=torch.bfloat16).add(0.5).to('cuda')
+    k = torch.randn((bs, h, seqlen, dim), dtype=torch.bfloat16).add(0.5).to('cuda')
+    v = torch.randn((bs, h, seqlen, dim), dtype=torch.bfloat16).add(0.5).to('cuda')
+    o = torch.zeros((bs, h, seqlen, dim), dtype=torch.bfloat16).to('cuda')
 
     [q_cute, k_cute, v_cute, o_cute] = [convert_from_dlpack(x) for x in (q, k, v, o)]
     current_stream = cuda.CUstream(torch.cuda.current_stream().cuda_stream)
 
-    fa = FlashSM90(qk_mn=(128, 256), cluster_size_m=2, intra_wg_overlap=False)
+    fa = FlashSM90(qk_mn=(128, 128), cluster_size_m=2, intra_wg_overlap=True)
     compiled_fa = cute.compile(fa, q_cute, k_cute, v_cute, o_cute, 0.125, current_stream)
     compiled_fa(q_cute, k_cute, v_cute, o_cute, 0.125, current_stream)
 
-    # do_bench(lambda: compiled_fa(q_cute, k_cute, v_cute, o_cute, 0.125, current_stream), return_mode="median")
+    time_ms = do_bench(lambda: compiled_fa(q_cute, k_cute, v_cute, o_cute, 0.125, current_stream), return_mode="median")
     # profile_ms(lambda: compiled_fa(q_cute, k_cute, v_cute, o_cute, 0.125, current_stream), repeats=30)
 
     ref = F.scaled_dot_product_attention(q, k, v)
@@ -682,3 +689,4 @@ if __name__ == "__main__":
 
     print(f'Max error: {max_val.item()} at (bs, h, seqlen, dim) = ({idx0}, {idx1}, {idx2}, {idx3})')
     print(f'{n_incorrect=}')
+    print(f'{get_tflops(bs, h, seqlen, seqlen, dim, dim, time_ms)} TFLOPS')
