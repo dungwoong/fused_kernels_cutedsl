@@ -17,6 +17,12 @@ def transpose_view(a: cute.Tensor) -> cute.Tensor:
     order = (1, 0, *range(2, cute.rank(a)))
     return cute.composition(a, cute.make_ordered_layout(shape, order=order))
 
+def canonical_warp_group_idx(sync: bool = True) -> cutlass.Int32:
+    warp_group_idx = cute.arch.thread_idx()[0] // 128
+    if const_expr(sync):
+        warp_group_idx = cute.arch.make_warp_uniform(warp_group_idx)
+    return warp_group_idx
+
 
 
 def convert_layout_acc_mn(acc_layout: cute.Layout, transpose: bool = False) -> cute.Layout:

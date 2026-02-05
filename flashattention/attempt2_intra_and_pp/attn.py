@@ -78,6 +78,7 @@ class FlashSM90:
         cluster_size_m: int=1,
         num_stages: int=2,
         intra_wg_overlap: bool=False,
+        pingpong: bool=False,
         ):
         self.acc_dtype = cutlass.Float32
         self.num_stages = num_stages
@@ -86,6 +87,7 @@ class FlashSM90:
         self.is_mcast = cluster_size_m > 1
         self.num_mcast = cluster_size_m
         self.intra_wg_overlap = intra_wg_overlap
+        self.pingpong = pingpong
 
         # compile time, later
         self.dtype = None
@@ -350,6 +352,7 @@ class FlashSM90:
         softmax = Softmax.create(softmax_scale_log2, num_rows=acc_o.shape[0][0] * acc_o.shape[1])
         # no need to softmax.reset, calling with first_block takes care of it
 
+        self.inter_wg_iwo_init_barrier()
         if cutlass.const_expr(self.intra_wg_overlap):
             kv_consumer_state = self.first_half_block_overlap(mma_qk, tSrQ, tSrK, tOrP, pipeline_k, kv_consumer_state, softmax)
             O_should_accumulate = False
@@ -358,9 +361,11 @@ class FlashSM90:
                 O_should_accumulate = True
             kv_consumer_state = self.last_half_block_overlap(acc_o, tOrP, tOrVt, kv_consumer_state, pipeline_v, mma_pv)
         if cutlass.const_expr(not self.intra_wg_overlap):
+            self.inter_wg_barrier() # all consumers sync before starting
             kv_consumer_state = self.mma_one_n_block(pipeline_k, pipeline_v, kv_consumer_state, mma_qk, tSrQ, tSrK, softmax, tOrP, acc_o, mma_pv, tOrVt, False, True)
             for _ in cutlass.range(n_block_max-1, unroll=1):
                 kv_consumer_state = self.mma_one_n_block(pipeline_k, pipeline_v, kv_consumer_state, mma_qk, tSrQ, tSrK, softmax, tOrP, acc_o, mma_pv, tOrVt, True, False)
+            self.inter_wg_arrive()
         row_scale = softmax.finalize()
         softmax.rescale_O(acc_o, row_scale)
 
@@ -394,6 +399,7 @@ class FlashSM90:
         
         # QKGemm
         p_acc = my_utils.gemm_zero_init(mma_qk, (self.tile_m, self.tile_n), tSrQ, tSrK, B_idx=kv_consumer_state.index, wg_wait=-1)
+        self.inter_wg_arrive()
         cute.nvgpu.warpgroup.wait_group(0)
         pipeline_k.consumer_release(kv_consumer_state)
 
@@ -406,6 +412,7 @@ class FlashSM90:
 
         # PVGemm
         pipeline_v.consumer_wait(kv_consumer_state)
+        self.inter_wg_barrier()
         my_utils.gemm_w_index(mma_pv, acc_o, tOrP, tOrVt, not O_should_accumulate, B_idx=kv_consumer_state.index, wg_wait=0)
         pipeline_v.consumer_release(kv_consumer_state)
         kv_consumer_state.advance()
@@ -429,12 +436,14 @@ class FlashSM90:
         # QKGemm[next]
         # this creates extra registers for to hold p_acc and tOrP simultaneously
         pipeline_k.consumer_wait(kv_consumer_state)
+        self.inter_wg_barrier()
         p_acc = my_utils.gemm_zero_init(mma_qk, (self.tile_m, self.tile_n), tSrQ, tSrK, B_idx=kv_consumer_state.index, wg_wait=-1)
 
         # PVGemm[current]
         pipeline_v.consumer_wait(v_consumer_state)
         my_utils.gemm_w_index(mma_pv, acc_o, tOrP, tOrVt, not O_should_accumulate, B_idx=v_consumer_state.index, wg_wait=-1)
 
+        self.inter_wg_arrive()
         cute.nvgpu.warpgroup.wait_group(1) # QK[next] done
         pipeline_k.consumer_release(kv_consumer_state)
 
@@ -459,6 +468,39 @@ class FlashSM90:
         pipeline_v.consumer_release(kv_consumer_state)
         kv_consumer_state.advance()
         return kv_consumer_state
+    
+    @cute.jit
+    def inter_wg_iwo_init_barrier(self):
+        warp_group_idx = my_utils.canonical_warp_group_idx(sync=False)
+        if cutlass.const_expr(self.pingpong):
+            if warp_group_idx == 1:
+                cute.arch.barrier_arrive(
+                    barrier_id=int(NamedBarrierFwd.WarpSchedulerWG1),
+                    number_of_threads=2 * THREADS_PER_WG
+                )
+
+    @cute.jit
+    def inter_wg_barrier(self):
+        if cutlass.const_expr(self.pingpong):
+            cute.arch.barrier(
+                barrier_id=int(NamedBarrierFwd.WarpSchedulerWG1) - 1 + my_utils.canonical_warp_group_idx(sync=False),
+                number_of_threads=2 * THREADS_PER_WG,
+            )
+    
+    @cute.jit
+    def inter_wg_arrive(self):
+        if cutlass.const_expr(self.pingpong):
+            assert self.num_mma_warpgroups in [2, 3]
+            cur_wg = my_utils.canonical_warp_group_idx(sync=False) - 1
+            if cutlass.const_expr(self.num_mma_warpgroups == 2):
+                next_wg = 1 - cur_wg
+            else:
+                t = cur_wg + 1
+                next_wg = t % self.num_mma_warpgroups
+            cute.arch.barrier_arrive(
+                barrier_id=int(NamedBarrierFwd.WarpSchedulerWG1) + next_wg,
+                number_of_threads=2 * THREADS_PER_WG
+            )
 
     
     @cute.jit
