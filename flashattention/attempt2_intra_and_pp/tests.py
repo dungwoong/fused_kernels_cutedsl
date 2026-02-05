@@ -145,7 +145,7 @@ def test_basic_cute():
 
 # You have to reduce the tile size to reduce register spilling, and then you get performance
 def test_cute_iwo():
-    fa = FlashSM90(qk_mn=(128, 128), num_stages=3, cluster_size_m=2, intra_wg_overlap=True)
+    fa = FlashSM90(qk_mn=(128, 128), num_stages=3, cluster_size_m=2, intra_wg_overlap=True, pingpong=True)
     run_test(fa, 16, 16, 4096, 4096, 64, 64, 'iwo_2cluster_3stages')
 
 def test_basic_cute_128():
