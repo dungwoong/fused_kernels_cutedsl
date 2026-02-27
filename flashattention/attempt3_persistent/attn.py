@@ -163,7 +163,7 @@ class FlashSM90:
             self.sQ_layout, self.sK_layout, self.sV_layout, self.sO_layout, 
             tiled_mma_qk, tiled_mma_pv, 
             n_block_max, softmax_scale_log2, 
-            StaticPersistentScheduler, tile_sched_params).launch(grid=grid_dim, block=[self.num_threads, 1, 1], cluster=[self.num_mcast, 1, 1], stream=stream)
+            StaticPersistentScheduler, tile_sched_params).launch(grid=grid_dim, block=[self.num_threads, 1, 1], cluster=[self.num_mcast, 1, 1], stream=stream, min_blocks_per_mp=1)
     
     @cute.kernel
     def kernel(self, mQ: cute.Tensor, mK: cute.Tensor, mV: cute.Tensor, mO: cute.Tensor, 
@@ -273,31 +273,31 @@ class FlashSM90:
                     tma_atom_v, 0, cute.make_layout(1), gV, sV, mcast_mask=mcast_mask
                 )
 
-                # if cutlass.const_expr(self.intra_wg_overlap):
-                #     # Initial QK
-                #     n_block = n_block_max - 1
-                #     pipeline_k.producer_acquire(
-                #         k_producer_state,
-                #         extra_tx_count=self.tma_copy_bytes["Q"]
-                #     )
-                #     load_Q(tma_bar_ptr=pipeline_k.producer_get_barrier(k_producer_state))
-                #     load_K(n_block, k_producer_state.index, tma_bar_ptr=pipeline_k.producer_get_barrier(k_producer_state))
-                #     k_producer_state.advance()
+                if cutlass.const_expr(self.intra_wg_overlap):
+                    # Initial QK
+                    n_block = n_block_max - 1
+                    pipeline_k.producer_acquire(
+                        k_producer_state,
+                        extra_tx_count=self.tma_copy_bytes["Q"]
+                    )
+                    load_Q(tma_bar_ptr=pipeline_k.producer_get_barrier(k_producer_state))
+                    load_K(n_block, k_producer_state.index, tma_bar_ptr=pipeline_k.producer_get_barrier(k_producer_state))
+                    k_producer_state.advance()
 
-                #     # K[next] and V[curr]
-                #     for i in cutlass.range(n_block_max - 1, unroll=1):
-                #         n_block = n_block_max - 1 - i
-                #         pipeline_k.producer_acquire(k_producer_state)
-                #         load_K(n_block - 1, k_producer_state.index, tma_bar_ptr=pipeline_k.producer_get_barrier(k_producer_state))
-                #         k_producer_state.advance()
-                #         pipeline_v.producer_acquire(v_producer_state)
-                #         load_V(n_block, v_producer_state.index, tma_bar_ptr=pipeline_v.producer_get_barrier(v_producer_state))
-                #         v_producer_state.advance()
+                    # K[next] and V[curr]
+                    for i in cutlass.range(n_block_max - 1, unroll=1):
+                        n_block = n_block_max - 1 - i
+                        pipeline_k.producer_acquire(k_producer_state)
+                        load_K(n_block - 1, k_producer_state.index, tma_bar_ptr=pipeline_k.producer_get_barrier(k_producer_state))
+                        k_producer_state.advance()
+                        pipeline_v.producer_acquire(v_producer_state)
+                        load_V(n_block, v_producer_state.index, tma_bar_ptr=pipeline_v.producer_get_barrier(v_producer_state))
+                        v_producer_state.advance()
                     
-                #     # last V load
-                #     pipeline_v.producer_acquire(v_producer_state)
-                #     load_V(0, v_producer_state.index, tma_bar_ptr=pipeline_v.producer_get_barrier(v_producer_state))
-                #     v_producer_state.advance()
+                    # last V load
+                    pipeline_v.producer_acquire(v_producer_state)
+                    load_V(0, v_producer_state.index, tma_bar_ptr=pipeline_v.producer_get_barrier(v_producer_state))
+                    v_producer_state.advance()
                 if cutlass.const_expr(not self.intra_wg_overlap):
                     # 1824: Add Q to pipeline K for first iter, no need for additional barrier
                     n_block = n_block_max - 1
@@ -351,16 +351,16 @@ class FlashSM90:
         softmax = Softmax.create(softmax_scale_log2, num_rows=acc_o.shape[0][0] * acc_o.shape[1])
         # no need to softmax.reset, calling with first_block takes care of it
         
+        self.inter_wg_iwo_init_barrier()
         while work_tile.is_valid_tile:
             m_block, head_idx, batch_idx = work_tile.tile_idx
-            self.inter_wg_iwo_init_barrier()
-            # if cutlass.const_expr(self.intra_wg_overlap):
-            #     kv_consumer_state = self.first_half_block_overlap(mma_qk, tSrQ, tSrK, tOrP, pipeline_k, kv_consumer_state, softmax)
-            #     O_should_accumulate = False
-            #     for _ in cutlass.range(n_block_max-1, unroll=1):
-            #         kv_consumer_state = self.mma_one_n_block_iwo(pipeline_k, pipeline_v, kv_consumer_state, mma_qk, tSrQ, tSrK, softmax, tOrP, acc_o, mma_pv, tOrVt, O_should_accumulate, False)
-            #         O_should_accumulate = True
-            #     kv_consumer_state = self.last_half_block_overlap(acc_o, tOrP, tOrVt, kv_consumer_state, pipeline_v, mma_pv)
+            if cutlass.const_expr(self.intra_wg_overlap):
+                kv_consumer_state = self.first_half_block_overlap(mma_qk, tSrQ, tSrK, tOrP, pipeline_k, kv_consumer_state, softmax)
+                O_should_accumulate = False
+                for _ in cutlass.range(n_block_max-1, unroll=1):
+                    kv_consumer_state = self.mma_one_n_block_iwo(pipeline_k, pipeline_v, kv_consumer_state, mma_qk, tSrQ, tSrK, softmax, tOrP, acc_o, mma_pv, tOrVt, O_should_accumulate, False)
+                    O_should_accumulate = True
+                kv_consumer_state = self.last_half_block_overlap(acc_o, tOrP, tOrVt, kv_consumer_state, pipeline_v, mma_pv)
             if cutlass.const_expr(not self.intra_wg_overlap):
                 self.inter_wg_barrier() # all consumers sync before starting
                 kv_consumer_state = self.mma_one_n_block(pipeline_k, pipeline_v, kv_consumer_state, mma_qk, tSrQ, tSrK, softmax, tOrP, acc_o, mma_pv, tOrVt, False, True, sQ, sK)
@@ -706,9 +706,10 @@ def profile_ms(op, repeats=30):
 
 if __name__ == "__main__":
     print("starting")
-    bs, h = 4, 6
-    dim = 64
-    seqlen = 1024
+    bs, h = 4, 16
+    dim = 128
+    seqlen = 8192
+    rt = 1 / math.sqrt(dim)
     q = torch.randn((bs, h, seqlen, dim), dtype=torch.bfloat16).add(0.5).to('cuda')
     k = torch.randn((bs, h, seqlen, dim), dtype=torch.bfloat16).add(0.5).to('cuda')
     v = torch.randn((bs, h, seqlen, dim), dtype=torch.bfloat16).add(0.5).to('cuda')
@@ -717,17 +718,27 @@ if __name__ == "__main__":
     [q_cute, k_cute, v_cute, o_cute] = [convert_from_dlpack(x) for x in (q, k, v, o)]
     current_stream = cuda.CUstream(torch.cuda.current_stream().cuda_stream)
 
-    fa = FlashSM90(qk_mn=(128, 128), cluster_size_m=1, intra_wg_overlap=False, pingpong=False)
-    compiled_fa = cute.compile(fa, q_cute, k_cute, v_cute, o_cute, 0.125, current_stream)
-    compiled_fa(q_cute, k_cute, v_cute, o_cute, 0.125, current_stream)
+    # good with dim=64
+    # fa = FlashSM90(qk_mn=(128, 128), num_stages=3, cluster_size_m=1, intra_wg_overlap=True, pingpong=True)
+    
+    # this actually beats cudnn on 4, 16, 8192, 128 
+    fa = FlashSM90(qk_mn=(128, 128), num_stages=2, cluster_size_m=1, intra_wg_overlap=False, pingpong=True)
+    compiled_fa = cute.compile(fa, q_cute, k_cute, v_cute, o_cute, rt, current_stream)
+    compiled_fa = cute.compile(fa, q_cute, k_cute, v_cute, o_cute, rt, current_stream)
+    compiled_fa(q_cute, k_cute, v_cute, o_cute, rt, current_stream)
 
-    # time_ms = do_bench(lambda: compiled_fa(q_cute, k_cute, v_cute, o_cute, 0.125, current_stream), return_mode="median")
+    with sdpa_kernel([SDPBackend.CUDNN_ATTENTION]):
+        time_torch = do_bench(lambda: F.scaled_dot_product_attention(q, k, v))
+    time_ms = do_bench(lambda: compiled_fa(q_cute, k_cute, v_cute, o_cute, rt, current_stream), return_mode="median")
     # profile_ms(lambda: compiled_fa(q_cute, k_cute, v_cute, o_cute, 0.125, current_stream), repeats=30)
 
     ref = F.scaled_dot_product_attention(q, k, v)
     # ref = (q @ k.transpose(2, 3)) @ v
     n_incorrect = o.numel() - ((o - ref).abs() < 0.1).sum().item()
-    print('allclose:', torch.allclose(ref, o, atol=1e-1, rtol=1e-1)) # look at docs for torch.testing.assert_close for details
+    allclose = torch.allclose(ref, o, atol=1e-1, rtol=1e-1)
+    print('allclose:', allclose) # look at docs for torch.testing.assert_close for details
+    if not allclose:
+        print("!!!!!! WARNING -- INCORRECT !!!!!!")
     
     diff = (o - ref).abs()
     max_val, max_idx = diff.view(-1).max(0)
@@ -736,9 +747,11 @@ if __name__ == "__main__":
     idx1 = (max_idx % (h * seqlen * dim)) // (seqlen * dim)
     idx2 = (max_idx % (seqlen * dim)) // dim
     idx3 = max_idx % dim
-    print(ref[0, 0, idx2, ...])
-    print(o[0, 0, idx2, ...])
+    # print(ref[0, 0, idx2, ...])
+    # print(o[0, 0, idx2, ...])
 
     print(f'Max error: {max_val.item()} at (bs, h, seqlen, dim) = ({idx0}, {idx1}, {idx2}, {idx3})')
     print(f'{n_incorrect=}')
-    # print(f'{get_tflops(bs, h, seqlen, seqlen, dim, dim, time_ms)} TFLOPS')
+    print(f'Mine:  {get_tflops(bs, h, seqlen, seqlen, dim, dim, time_ms)} TFLOPS ({time_ms})')
+    print(f'Torch: {get_tflops(bs, h, seqlen, seqlen, dim, dim, time_torch)} TFLOPS ({time_torch})')
+    print(f'{time_torch/time_ms}')
