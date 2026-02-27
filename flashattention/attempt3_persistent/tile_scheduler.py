@@ -108,10 +108,11 @@ class StaticPersistentScheduler:
 
         @staticmethod
         def create(args: TileSchedulerArguments, *, loc=None, ip=None) -> StaticPersistentScheduler.Params:
+            total_blocks = args.num_block * args.num_batch * args.num_head
             return StaticPersistentScheduler.Params(
-                args.num_block,
-                FastDivmod(args.num_block),
-                FastDivmod(args.num_head),
+                total_blocks,
+                FastDivmod.create(args.num_block),
+                FastDivmod.create(args.num_head),
             )
     
     def __init__(self, params: Params, tile_idx: Int32, *, loc=None, ip=None):
@@ -137,7 +138,7 @@ class StaticPersistentScheduler:
     
     def get_current_work(self, *, loc=None, ip=None) -> cutlass.utils.WorkTileInfo:
         hn_idx, block_idx = self.params.num_block_divmod.divmod(self._tile_idx)
-        batch_idx, head_idx = self.params.num_head_divmod(hn_idx)
+        batch_idx, head_idx = self.params.num_head_divmod.divmod(hn_idx)
         is_valid = self._tile_idx < self.params.total_blocks
         return cutlass.utils.WorkTileInfo((block_idx, head_idx, batch_idx), is_valid)
     

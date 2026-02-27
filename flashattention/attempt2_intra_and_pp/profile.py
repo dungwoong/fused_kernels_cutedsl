@@ -19,6 +19,10 @@ import traceback
 
 from attn import FlashSM90
 
+convert_from_dlpack = lambda tensor: (
+        from_dlpack(tensor.detach(), assumed_align=16)
+    )
+
 def get_tflops(bs, nh, l, head_dim, latency_ms):
     qk = bs * nh * (2 * l * l * head_dim)
     smx = bs * nh * (4 * l * l) # max + sub + exp + sum + div, but codebases(e.g. thunderkittens) use 4
@@ -53,22 +57,26 @@ def _run_test_impl(fa, bs, nh, l, head_dim):
     assert torch.allclose(ref, o, atol=1e-1, rtol=1e-2), f'Incorrect. Max abs diff: {torch.max((o - ref).abs()).item()}'
     
     time_ms = do_bench(lambda: compiled_fa(q_cute, k_cute, v_cute, o_cute, inv_sqrt_d, current_stream))
-    print(f'[cute] t={time_ms}ms, TFLOPS={get_tflops(bs, nh, lq, lkv, head_dim, head_dim_v, time_ms)}')
+    print(f'[cutedsl] t={round(time_ms, 3)}ms, TFLOPS={round(get_tflops(bs, nh, lq, head_dim, time_ms), 3)}')
 
-def _run_test_impl_torch(bs, nh, l, head_dim, sdp_backend):
+def _run_test_impl_torch(bs, nh, l, head_dim, sdp_backend=SDPBackend.CUDNN_ATTENTION):
     lkv = lq = l
     t = 'SDP.cudnn' if sdp_backend == SDPBackend.CUDNN_ATTENTION else 'SDP.flash'
-    tag = f'{t} bs{bs} nh{nh} lq{lq} lkv{lkv} head_dim{head_dim}'
+    tag = f'cudnn'
     q, k, v, _ = _get_qkvo(bs, nh, lq, lkv, head_dim)
 
     with sdpa_kernel([sdp_backend]):
         time_ms = do_bench(lambda: F.scaled_dot_product_attention(q, k, v))
-    print(f'[{tag}] t={time_ms}ms, TFLOPS={get_tflops(bs, nh, lq, lkv, head_dim, head_dim, time_ms)}')
+    print(f'[{tag}] t={round(time_ms, 3)}ms, TFLOPS={round(get_tflops(bs, nh, lq, head_dim, time_ms), 3)}')
 
 def comparison(fa, bs, nh, l, head_dim):
-    _run_test_impl(bs, nh, l, head_dim)
+    _run_test_impl(fa, bs, nh, l, head_dim)
     _run_test_impl_torch(bs, nh, l, head_dim)
 
 
-fa = FlashSM90(qk_mn=(128, 256), num_stages=2, cluster_size_m=1, intra_wg_overlap=False, pingpong=True)
-comparison(fa, 4, 16, 1024, 64)
+fa1024 = FlashSM90(qk_mn=(128, 128), num_stages=3, cluster_size_m=1, intra_wg_overlap=True, pingpong=True)
+comparison(fa1024, 4, 16, 1024, 64)
+fa4096 = FlashSM90(qk_mn=(128, 256), num_stages=3, cluster_size_m=1, intra_wg_overlap=False, pingpong=True)
+comparison(fa4096, 4, 16, 4096, 64)
+
+comparison(fa4096, 4, 16, 8448, 64)

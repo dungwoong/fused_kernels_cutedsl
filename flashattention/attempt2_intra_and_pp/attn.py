@@ -373,13 +373,14 @@ class FlashSM90:
     
     @cute.jit
     def first_half_block_overlap(self, mma_qk: cute.TiledMma, tSrQ: cute.Tensor, tSrK: cute.Tensor, tOrP: cute.Tensor, pipeline_k: pipeline.PipelineAsync, kv_consumer_state: pipeline.PipelineState, softmax: Softmax):
-        pipeline_k.consumer_wait(kv_consumer_state)
+        pipeline_k.consumer_wait(kv_consumer_state, pipeline_k.consumer_try_wait(kv_consumer_state))
         p_acc = my_utils.gemm_zero_init(mma_qk, (self.tile_m, self.tile_n), tSrQ, tSrK, B_idx=kv_consumer_state.index, wg_wait=0)
         pipeline_k.consumer_release(kv_consumer_state)
 
         softmax.online_softmax(p_acc, is_first=True) # no need to rescale on first iter
         tOrP_acc = cute.make_tensor(p_acc.iterator, my_utils.convert_layout_acc_frgA(p_acc.layout))
-        tOrP.store(tOrP_acc.load().to(self.dtype))
+        # tOrP.store(tOrP_acc.load().to(self.dtype))
+        my_utils.cvt_f16(tOrP_acc, tOrP)
 
         return kv_consumer_state
     
@@ -395,7 +396,7 @@ class FlashSM90:
                         tOrVt: cute.Tensor,
                         O_should_accumulate: Boolean,
                         softmax_is_first: cutlass.Constexpr[bool]):
-        pipeline_k.consumer_wait(kv_consumer_state)
+        pipeline_k.consumer_wait(kv_consumer_state, pipeline_k.consumer_try_wait(kv_consumer_state))
         
         # QKGemm
         p_acc = my_utils.gemm_zero_init(mma_qk, (self.tile_m, self.tile_n), tSrQ, tSrK, B_idx=kv_consumer_state.index, wg_wait=-1)
@@ -407,11 +408,12 @@ class FlashSM90:
         # TODO they call PTX directly to convert to f16 damnn
         row_scale = softmax.online_softmax(p_acc, is_first=softmax_is_first) # rescale p_acc, internally store sum/max
         tOrP_acc = cute.make_tensor(p_acc.iterator, my_utils.convert_layout_acc_frgA(p_acc.layout))
-        tOrP.store(tOrP_acc.load().to(self.dtype))
+        # tOrP.store(tOrP_acc.load().to(self.dtype))
+        my_utils.cvt_f16(tOrP_acc, tOrP)
         softmax.rescale_O(acc_o, row_scale)
 
         # PVGemm
-        pipeline_v.consumer_wait(kv_consumer_state)
+        pipeline_v.consumer_wait(kv_consumer_state, pipeline_v.consumer_try_wait(kv_consumer_state))
         self.inter_wg_barrier()
         my_utils.gemm_w_index(mma_pv, acc_o, tOrP, tOrVt, not O_should_accumulate, B_idx=kv_consumer_state.index, wg_wait=0)
         pipeline_v.consumer_release(kv_consumer_state)
@@ -435,12 +437,12 @@ class FlashSM90:
 
         # QKGemm[next]
         # this creates extra registers for to hold p_acc and tOrP simultaneously
-        pipeline_k.consumer_wait(kv_consumer_state)
+        pipeline_k.consumer_wait(kv_consumer_state, pipeline_k.consumer_try_wait(kv_consumer_state))
         self.inter_wg_barrier()
         p_acc = my_utils.gemm_zero_init(mma_qk, (self.tile_m, self.tile_n), tSrQ, tSrK, B_idx=kv_consumer_state.index, wg_wait=-1)
 
         # PVGemm[current]
-        pipeline_v.consumer_wait(v_consumer_state)
+        pipeline_v.consumer_wait(v_consumer_state, pipeline_v.consumer_try_wait(kv_consumer_state))
         my_utils.gemm_w_index(mma_pv, acc_o, tOrP, tOrVt, not O_should_accumulate, B_idx=v_consumer_state.index, wg_wait=-1)
 
         self.inter_wg_arrive()
@@ -456,14 +458,15 @@ class FlashSM90:
         pipeline_v.consumer_release(v_consumer_state)
 
         tOrP_acc = cute.make_tensor(p_acc.iterator, my_utils.convert_layout_acc_frgA(p_acc.layout))
-        tOrP.store(tOrP_acc.load().to(self.dtype))
+        # tOrP.store(tOrP_acc.load().to(self.dtype))
+        my_utils.cvt_f16(tOrP_acc, tOrP)
         softmax.rescale_O(acc_o, row_scale)
 
         return kv_consumer_state
 
     @cute.jit
     def last_half_block_overlap(self, acc_o: cute.Tensor, tOrP: cute.Tensor, tOrVt: cute.Tensor, kv_consumer_state: pipeline.PipelineState, pipeline_v: pipeline.PipelineAsync, mma_pv: cute.TiledMma):
-        pipeline_v.consumer_wait(kv_consumer_state)
+        pipeline_v.consumer_wait(kv_consumer_state, pipeline_v.consumer_try_wait(kv_consumer_state))
         my_utils.gemm_w_index(mma_pv, acc_o, tOrP, tOrVt, False, B_idx=kv_consumer_state.index, wg_wait=0)
         pipeline_v.consumer_release(kv_consumer_state)
         kv_consumer_state.advance()
@@ -707,7 +710,7 @@ if __name__ == "__main__":
     [q_cute, k_cute, v_cute, o_cute] = [convert_from_dlpack(x) for x in (q, k, v, o)]
     current_stream = cuda.CUstream(torch.cuda.current_stream().cuda_stream)
 
-    fa = FlashSM90(qk_mn=(128, 128), cluster_size_m=2, intra_wg_overlap=True, pingpong=True)
+    fa = FlashSM90(qk_mn=(128, 128), cluster_size_m=1, intra_wg_overlap=True, pingpong=True)
     compiled_fa = cute.compile(fa, q_cute, k_cute, v_cute, o_cute, 0.125, current_stream)
     compiled_fa(q_cute, k_cute, v_cute, o_cute, 0.125, current_stream)
 

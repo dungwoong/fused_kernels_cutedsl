@@ -24,7 +24,7 @@ from my_softmax import Softmax
 
 from pipeline import PipelineTmaAsync
 
-from tile_scheduler import StaticPersistentScheduler, TileSchedulerArguments
+from tile_scheduler import StaticPersistentScheduler, SingleTileScheduler, TileSchedulerArguments
 from cute_dsl_utils import ParamsBase
 from functools import partial
 import my_utils
@@ -80,7 +80,6 @@ class FlashSM90:
         intra_wg_overlap: bool=False,
         pingpong: bool=False,
         ):
-        assert cluster_size_m == 1, "Only support cluster size 1 for now"
         self.acc_dtype = cutlass.Float32
         self.num_stages = num_stages
         self.tile_m, self.tile_n = qk_mn
@@ -135,8 +134,8 @@ class FlashSM90:
         self.num_producer_regs = (56, 24, 32)[int(self.num_mma_warpgroups - 1)]
         
         # allows you to debug print
-        # self.num_mma_regs = 232
-        # self.num_producer_regs = 40
+        self.num_mma_regs = 232
+        self.num_producer_regs = 40
 
         # Shared Storage
         self._get_smem_layouts()
@@ -214,7 +213,7 @@ class FlashSM90:
         sK = storage.sK.get_tensor(sK_layout.outer, swizzle=sK_layout.inner)
         sV = storage.sV.get_tensor(sV_layout.outer, swizzle=sV_layout.inner) # (n, dimv) --> (k, n) in mnk
         sVt = my_utils.transpose_view(sV) # (dimv, n) --> (n, k). Required for GEMM to work
-        sO = storage.sQ.get_tensor(sO_layout.outer, swizzle=sO_layout.inner, dtype=self.dtype) # reuse sQ
+        sO = storage.sO.get_tensor(sO_layout.outer, swizzle=sO_layout.inner, dtype=self.dtype) # reuse sQ
 
         TileSchedulerCls = partial(TileScheduler.create, tile_sched_params)
 
@@ -224,7 +223,7 @@ class FlashSM90:
                 mQ, mK, mV, 
                 sQ, sK, sV, 
                 tma_atom_q, tma_atom_k, tma_atom_v, 
-                pipeline_k, pipeline_v, 
+                pipeline_k, pipeline_v,
                 n_block_max, TileSchedulerCls)
         else:
             tidx, _, _ = cute.arch.thread_idx()
@@ -251,7 +250,7 @@ class FlashSM90:
             k_producer_state = pipeline.make_pipeline_state(pipeline.PipelineUserType.Producer, self.num_stages)
             v_producer_state = k_producer_state.clone()            
             tile_scheduler = TileSchedulerCls()
-            work_tile: cutlass.utils.WorkTileInfo = tile_scheduler.initial_work_tile_info()
+            work_tile = tile_scheduler.initial_work_tile_info()
             while work_tile.is_valid_tile:
                 m_block, head_idx, batch_idx = work_tile.tile_idx
                 mQ_curr = mQ[None, None, head_idx, batch_idx] # (seqlen, dim)
@@ -263,50 +262,50 @@ class FlashSM90:
                 gV = cute.local_tile(mV_curr, (self.tile_n, self.hdimv), (None, 0))
                 
                 load_Q, _, _ = my_utils.tma_get_copy_fn(
-                    tma_atom_q, 0, cute.make_layout((1, 1)), gQ, sQ, single_stage=True, mcast_mask=0
+                    tma_atom_q, 0, cute.make_layout(1), gQ, sQ, single_stage=True, mcast_mask=0
                 )
 
                 load_K, _, _ = my_utils.tma_get_copy_fn(
-                    tma_atom_k, cta_rank_in_cluster, cute.make_layout((self.num_mcast, 1)), gK, sK, mcast_mask=mcast_mask
+                    tma_atom_k, 0, cute.make_layout(1), gK, sK, mcast_mask=mcast_mask
                 )
 
                 load_V, _, _ = my_utils.tma_get_copy_fn(
-                    tma_atom_v, cta_rank_in_cluster, cute.make_layout((self.num_mcast, 1)), gV, sV, mcast_mask=mcast_mask
+                    tma_atom_v, 0, cute.make_layout(1), gV, sV, mcast_mask=mcast_mask
                 )
 
-                if cutlass.const_expr(self.intra_wg_overlap):
-                    # Initial QK
-                    n_block = n_block_max - 1
-                    pipeline_k.producer_acquire(
-                        k_producer_state,
-                        extra_tx_count=self.tma_copy_bytes["Q"]
-                    )
-                    load_Q(tma_bar_ptr=pipeline_k.producer_get_barrier(k_producer_state))
-                    load_K(n_block, k_producer_state.index, tma_bar_ptr=pipeline_k.producer_get_barrier(k_producer_state))
-                    k_producer_state.advance()
+                # if cutlass.const_expr(self.intra_wg_overlap):
+                #     # Initial QK
+                #     n_block = n_block_max - 1
+                #     pipeline_k.producer_acquire(
+                #         k_producer_state,
+                #         extra_tx_count=self.tma_copy_bytes["Q"]
+                #     )
+                #     load_Q(tma_bar_ptr=pipeline_k.producer_get_barrier(k_producer_state))
+                #     load_K(n_block, k_producer_state.index, tma_bar_ptr=pipeline_k.producer_get_barrier(k_producer_state))
+                #     k_producer_state.advance()
 
-                    # K[next] and V[curr]
-                    for i in cutlass.range(n_block_max - 1, unroll=1):
-                        n_block = n_block_max - 1 - i
-                        pipeline_k.producer_acquire(k_producer_state)
-                        load_K(n_block - 1, k_producer_state.index, tma_bar_ptr=pipeline_k.producer_get_barrier(k_producer_state))
-                        k_producer_state.advance()
-                        pipeline_v.producer_acquire(v_producer_state)
-                        load_V(n_block, v_producer_state.index, tma_bar_ptr=pipeline_v.producer_get_barrier(v_producer_state))
-                        v_producer_state.advance()
+                #     # K[next] and V[curr]
+                #     for i in cutlass.range(n_block_max - 1, unroll=1):
+                #         n_block = n_block_max - 1 - i
+                #         pipeline_k.producer_acquire(k_producer_state)
+                #         load_K(n_block - 1, k_producer_state.index, tma_bar_ptr=pipeline_k.producer_get_barrier(k_producer_state))
+                #         k_producer_state.advance()
+                #         pipeline_v.producer_acquire(v_producer_state)
+                #         load_V(n_block, v_producer_state.index, tma_bar_ptr=pipeline_v.producer_get_barrier(v_producer_state))
+                #         v_producer_state.advance()
                     
-                    # last V load
-                    pipeline_v.producer_acquire(v_producer_state)
-                    load_V(0, v_producer_state.index, tma_bar_ptr=pipeline_v.producer_get_barrier(v_producer_state))
-                    v_producer_state.advance()
+                #     # last V load
+                #     pipeline_v.producer_acquire(v_producer_state)
+                #     load_V(0, v_producer_state.index, tma_bar_ptr=pipeline_v.producer_get_barrier(v_producer_state))
+                #     v_producer_state.advance()
                 if cutlass.const_expr(not self.intra_wg_overlap):
                     # 1824: Add Q to pipeline K for first iter, no need for additional barrier
                     n_block = n_block_max - 1
-                    load_Q(tma_bar_ptr=pipeline_k.producer_get_barrier(k_producer_state))
                     pipeline_k.producer_acquire(
                         k_producer_state,
                         extra_tx_count=self.tma_copy_bytes["Q"]
                     )
+                    load_Q(tma_bar_ptr=pipeline_k.producer_get_barrier(k_producer_state))
                     load_K(n_block, k_producer_state.index, tma_bar_ptr=pipeline_k.producer_get_barrier(k_producer_state))
 
                     pipeline_v.producer_acquire(v_producer_state)
@@ -323,10 +322,11 @@ class FlashSM90:
                         load_V(n_block, v_producer_state.index, tma_bar_ptr=pipeline_v.producer_get_barrier(v_producer_state))
                         k_producer_state.advance()
                         v_producer_state.advance()
+                cute.arch.barrier(barrier_id=int(NamedBarrierFwd.Epilogue), number_of_threads=self.num_epilogue_threads + cute.arch.WARP_SIZE)
                 tile_scheduler.advance_to_next_work()
                 work_tile = tile_scheduler.get_current_work()
-                pipeline_k.producer_tail(k_producer_state)
-                pipeline_v.producer_tail(v_producer_state)
+            pipeline_k.producer_tail(k_producer_state)
+            pipeline_v.producer_tail(v_producer_state)
     
     @cute.jit
     def mma(self, n_block_max: int, 
@@ -335,7 +335,7 @@ class FlashSM90:
             pipeline_k: pipeline.PipelineAsync, pipeline_v: pipeline.PipelineAsync, mma_qk: cute.TiledMma, mma_pv: cute.TiledMma, tma_atom_o: cute.CopyAtom, tidx: Int32, softmax_scale_log2: cutlass.Float32, TileSchedulerCls: Callable):
         kv_consumer_state = pipeline.make_pipeline_state(pipeline.PipelineUserType.Consumer, self.num_stages)
         tile_scheduler = TileSchedulerCls()
-        work_tile: cutlass.utils.WorkTileInfo = tile_scheduler.initial_work_tile_info()
+        work_tile = tile_scheduler.initial_work_tile_info()
 
         thr_mma_qk = mma_qk.get_slice(tidx)
         tSrQ = mma_qk.make_fragment_A(thr_mma_qk.partition_A(sQ))
@@ -350,22 +350,22 @@ class FlashSM90:
 
         softmax = Softmax.create(softmax_scale_log2, num_rows=acc_o.shape[0][0] * acc_o.shape[1])
         # no need to softmax.reset, calling with first_block takes care of it
-
+        
         while work_tile.is_valid_tile:
             m_block, head_idx, batch_idx = work_tile.tile_idx
             self.inter_wg_iwo_init_barrier()
-            if cutlass.const_expr(self.intra_wg_overlap):
-                kv_consumer_state = self.first_half_block_overlap(mma_qk, tSrQ, tSrK, tOrP, pipeline_k, kv_consumer_state, softmax)
-                O_should_accumulate = False
-                for _ in cutlass.range(n_block_max-1, unroll=1):
-                    kv_consumer_state = self.mma_one_n_block_iwo(pipeline_k, pipeline_v, kv_consumer_state, mma_qk, tSrQ, tSrK, softmax, tOrP, acc_o, mma_pv, tOrVt, O_should_accumulate, False)
-                    O_should_accumulate = True
-                kv_consumer_state = self.last_half_block_overlap(acc_o, tOrP, tOrVt, kv_consumer_state, pipeline_v, mma_pv)
+            # if cutlass.const_expr(self.intra_wg_overlap):
+            #     kv_consumer_state = self.first_half_block_overlap(mma_qk, tSrQ, tSrK, tOrP, pipeline_k, kv_consumer_state, softmax)
+            #     O_should_accumulate = False
+            #     for _ in cutlass.range(n_block_max-1, unroll=1):
+            #         kv_consumer_state = self.mma_one_n_block_iwo(pipeline_k, pipeline_v, kv_consumer_state, mma_qk, tSrQ, tSrK, softmax, tOrP, acc_o, mma_pv, tOrVt, O_should_accumulate, False)
+            #         O_should_accumulate = True
+            #     kv_consumer_state = self.last_half_block_overlap(acc_o, tOrP, tOrVt, kv_consumer_state, pipeline_v, mma_pv)
             if cutlass.const_expr(not self.intra_wg_overlap):
                 self.inter_wg_barrier() # all consumers sync before starting
-                kv_consumer_state = self.mma_one_n_block(pipeline_k, pipeline_v, kv_consumer_state, mma_qk, tSrQ, tSrK, softmax, tOrP, acc_o, mma_pv, tOrVt, False, True)
+                kv_consumer_state = self.mma_one_n_block(pipeline_k, pipeline_v, kv_consumer_state, mma_qk, tSrQ, tSrK, softmax, tOrP, acc_o, mma_pv, tOrVt, False, True, sQ, sK)
                 for _ in cutlass.range(n_block_max-1, unroll=1):
-                    kv_consumer_state = self.mma_one_n_block(pipeline_k, pipeline_v, kv_consumer_state, mma_qk, tSrQ, tSrK, softmax, tOrP, acc_o, mma_pv, tOrVt, True, False)
+                    kv_consumer_state = self.mma_one_n_block(pipeline_k, pipeline_v, kv_consumer_state, mma_qk, tSrQ, tSrK, softmax, tOrP, acc_o, mma_pv, tOrVt, True, False, sQ, sK)
                 self.inter_wg_arrive()
             row_scale = softmax.finalize()
             softmax.rescale_O(acc_o, row_scale)
@@ -376,13 +376,14 @@ class FlashSM90:
     
     @cute.jit
     def first_half_block_overlap(self, mma_qk: cute.TiledMma, tSrQ: cute.Tensor, tSrK: cute.Tensor, tOrP: cute.Tensor, pipeline_k: pipeline.PipelineAsync, kv_consumer_state: pipeline.PipelineState, softmax: Softmax):
-        pipeline_k.consumer_wait(kv_consumer_state)
+        pipeline_k.consumer_wait(kv_consumer_state, pipeline_k.consumer_try_wait(kv_consumer_state))
         p_acc = my_utils.gemm_zero_init(mma_qk, (self.tile_m, self.tile_n), tSrQ, tSrK, B_idx=kv_consumer_state.index, wg_wait=0)
         pipeline_k.consumer_release(kv_consumer_state)
 
         softmax.online_softmax(p_acc, is_first=True) # no need to rescale on first iter
         tOrP_acc = cute.make_tensor(p_acc.iterator, my_utils.convert_layout_acc_frgA(p_acc.layout))
-        tOrP.store(tOrP_acc.load().to(self.dtype))
+        # tOrP.store(tOrP_acc.load().to(self.dtype))
+        my_utils.cvt_f16(tOrP_acc, tOrP)
 
         return kv_consumer_state
     
@@ -397,8 +398,8 @@ class FlashSM90:
                         mma_pv: cute.TiledMma,
                         tOrVt: cute.Tensor,
                         O_should_accumulate: Boolean,
-                        softmax_is_first: cutlass.Constexpr[bool]):
-        pipeline_k.consumer_wait(kv_consumer_state)
+                        softmax_is_first: cutlass.Constexpr[bool], sQ: cute.Tensor, sK: cute.Tensor):
+        pipeline_k.consumer_wait(kv_consumer_state, pipeline_k.consumer_try_wait(kv_consumer_state))
         
         # QKGemm
         p_acc = my_utils.gemm_zero_init(mma_qk, (self.tile_m, self.tile_n), tSrQ, tSrK, B_idx=kv_consumer_state.index, wg_wait=-1)
@@ -410,11 +411,12 @@ class FlashSM90:
         # TODO they call PTX directly to convert to f16 damnn
         row_scale = softmax.online_softmax(p_acc, is_first=softmax_is_first) # rescale p_acc, internally store sum/max
         tOrP_acc = cute.make_tensor(p_acc.iterator, my_utils.convert_layout_acc_frgA(p_acc.layout))
-        tOrP.store(tOrP_acc.load().to(self.dtype))
+        # tOrP.store(tOrP_acc.load().to(self.dtype))
+        my_utils.cvt_f16(tOrP_acc, tOrP)
         softmax.rescale_O(acc_o, row_scale)
 
         # PVGemm
-        pipeline_v.consumer_wait(kv_consumer_state)
+        pipeline_v.consumer_wait(kv_consumer_state, pipeline_v.consumer_try_wait(kv_consumer_state))
         self.inter_wg_barrier()
         my_utils.gemm_w_index(mma_pv, acc_o, tOrP, tOrVt, not O_should_accumulate, B_idx=kv_consumer_state.index, wg_wait=0)
         pipeline_v.consumer_release(kv_consumer_state)
@@ -438,12 +440,12 @@ class FlashSM90:
 
         # QKGemm[next]
         # this creates extra registers for to hold p_acc and tOrP simultaneously
-        pipeline_k.consumer_wait(kv_consumer_state)
+        pipeline_k.consumer_wait(kv_consumer_state, pipeline_k.consumer_try_wait(kv_consumer_state))
         self.inter_wg_barrier()
         p_acc = my_utils.gemm_zero_init(mma_qk, (self.tile_m, self.tile_n), tSrQ, tSrK, B_idx=kv_consumer_state.index, wg_wait=-1)
 
         # PVGemm[current]
-        pipeline_v.consumer_wait(v_consumer_state)
+        pipeline_v.consumer_wait(v_consumer_state, pipeline_v.consumer_try_wait(kv_consumer_state))
         my_utils.gemm_w_index(mma_pv, acc_o, tOrP, tOrVt, not O_should_accumulate, B_idx=v_consumer_state.index, wg_wait=-1)
 
         self.inter_wg_arrive()
@@ -459,14 +461,15 @@ class FlashSM90:
         pipeline_v.consumer_release(v_consumer_state)
 
         tOrP_acc = cute.make_tensor(p_acc.iterator, my_utils.convert_layout_acc_frgA(p_acc.layout))
-        tOrP.store(tOrP_acc.load().to(self.dtype))
+        # tOrP.store(tOrP_acc.load().to(self.dtype))
+        my_utils.cvt_f16(tOrP_acc, tOrP)
         softmax.rescale_O(acc_o, row_scale)
 
         return kv_consumer_state
 
     @cute.jit
     def last_half_block_overlap(self, acc_o: cute.Tensor, tOrP: cute.Tensor, tOrVt: cute.Tensor, kv_consumer_state: pipeline.PipelineState, pipeline_v: pipeline.PipelineAsync, mma_pv: cute.TiledMma):
-        pipeline_v.consumer_wait(kv_consumer_state)
+        pipeline_v.consumer_wait(kv_consumer_state, pipeline_v.consumer_try_wait(kv_consumer_state))
         my_utils.gemm_w_index(mma_pv, acc_o, tOrP, tOrVt, False, B_idx=kv_consumer_state.index, wg_wait=0)
         pipeline_v.consumer_release(kv_consumer_state)
         kv_consumer_state.advance()
@@ -513,7 +516,7 @@ class FlashSM90:
         rO.store(acc_o.load().to(self.dtype))
 
         # Make sure no SMEM dependencies
-        cute.arch.barrier(barrier_id=int(NamedBarrierFwd.Epilogue), number_of_threads=self.num_epilogue_threads)
+        cute.arch.barrier(barrier_id=int(NamedBarrierFwd.Epilogue), number_of_threads=self.num_epilogue_threads + cute.arch.WARP_SIZE)
 
         # Copy R2S
         smem_copy_atom_O = my_utils.get_smem_store_atom(90, self.dtype)
@@ -605,17 +608,21 @@ class FlashSM90:
             cute.struct.Align[cute.struct.MemRange[self.dtype, cute.cosize(layout)], self.buffer_align_bytes]
             for layout in (self.sQ_layout, self.sK_layout, self.sV_layout)
         ]
+        sO_struct = cute.struct.Align[cute.struct.MemRange[self.dtype, cute.cosize(self.sO_layout)], self.buffer_align_bytes]
 
+        mbar_ptr_Q_struct = cute.struct.MemRange[cutlass.Int64, 1]
         mbar_ptr_K_struct = cute.struct.MemRange[cutlass.Int64, self.num_stages * 2]
         mbar_ptr_V_struct = cute.struct.MemRange[cutlass.Int64, self.num_stages * 2]
 
         @cute.struct
         class SharedStorage:
+            mbar_q: mbar_ptr_Q_struct
             mbar_k: mbar_ptr_K_struct
             mbar_v: mbar_ptr_V_struct
             sV: sV_struct
             sQ: sQ_struct
             sK: sK_struct
+            sO: sO_struct
         
         self.shared_storage = SharedStorage
     
@@ -699,7 +706,7 @@ def profile_ms(op, repeats=30):
 
 if __name__ == "__main__":
     print("starting")
-    bs, h = 16, 16
+    bs, h = 4, 6
     dim = 64
     seqlen = 1024
     q = torch.randn((bs, h, seqlen, dim), dtype=torch.bfloat16).add(0.5).to('cuda')
@@ -710,16 +717,14 @@ if __name__ == "__main__":
     [q_cute, k_cute, v_cute, o_cute] = [convert_from_dlpack(x) for x in (q, k, v, o)]
     current_stream = cuda.CUstream(torch.cuda.current_stream().cuda_stream)
 
-    fa = FlashSM90(qk_mn=(128, 128), cluster_size_m=2, intra_wg_overlap=True, pingpong=True)
+    fa = FlashSM90(qk_mn=(128, 128), cluster_size_m=1, intra_wg_overlap=False, pingpong=False)
     compiled_fa = cute.compile(fa, q_cute, k_cute, v_cute, o_cute, 0.125, current_stream)
     compiled_fa(q_cute, k_cute, v_cute, o_cute, 0.125, current_stream)
 
-    time_ms = do_bench(lambda: compiled_fa(q_cute, k_cute, v_cute, o_cute, 0.125, current_stream), return_mode="median")
+    # time_ms = do_bench(lambda: compiled_fa(q_cute, k_cute, v_cute, o_cute, 0.125, current_stream), return_mode="median")
     # profile_ms(lambda: compiled_fa(q_cute, k_cute, v_cute, o_cute, 0.125, current_stream), repeats=30)
 
     ref = F.scaled_dot_product_attention(q, k, v)
-    print(ref[0, 0, ...])
-    print(o[0, 0, ...])
     # ref = (q @ k.transpose(2, 3)) @ v
     n_incorrect = o.numel() - ((o - ref).abs() < 0.1).sum().item()
     print('allclose:', torch.allclose(ref, o, atol=1e-1, rtol=1e-1)) # look at docs for torch.testing.assert_close for details
@@ -731,7 +736,9 @@ if __name__ == "__main__":
     idx1 = (max_idx % (h * seqlen * dim)) // (seqlen * dim)
     idx2 = (max_idx % (seqlen * dim)) // dim
     idx3 = max_idx % dim
+    print(ref[0, 0, idx2, ...])
+    print(o[0, 0, idx2, ...])
 
     print(f'Max error: {max_val.item()} at (bs, h, seqlen, dim) = ({idx0}, {idx1}, {idx2}, {idx3})')
     print(f'{n_incorrect=}')
-    print(f'{get_tflops(bs, h, seqlen, seqlen, dim, dim, time_ms)} TFLOPS')
+    # print(f'{get_tflops(bs, h, seqlen, seqlen, dim, dim, time_ms)} TFLOPS')
