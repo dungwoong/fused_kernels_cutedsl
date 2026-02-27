@@ -1,3 +1,4 @@
+from __future__ import annotations
 from dataclasses import dataclass
 from enum import IntEnum
 from typing import Optional, Tuple, override
@@ -93,3 +94,70 @@ class SingleTileScheduler:
             obj_list.append(cutlass.new_from_mlir_values(obj, values[:n_items]))
             values = values[n_items:]
         return SingleTileScheduler(*(tuple(obj_list)), loc=self._loc)
+
+
+class StaticPersistentScheduler:
+    """
+    Just assume you have cluster size 1 for now
+    """
+    @dataclass
+    class Params(ParamsBase):
+        total_blocks: Int32
+        num_block_divmod: FastDivmod # num blocks in a head/batch
+        num_head_divmod: FastDivmod
+
+        @staticmethod
+        def create(args: TileSchedulerArguments, *, loc=None, ip=None) -> StaticPersistentScheduler.Params:
+            return StaticPersistentScheduler.Params(
+                args.num_block,
+                FastDivmod(args.num_block),
+                FastDivmod(args.num_head),
+            )
+    
+    def __init__(self, params: Params, tile_idx: Int32, *, loc=None, ip=None):
+        self.params = params
+        self._tile_idx = tile_idx
+        self._loc = loc
+        self._ip = ip
+    
+    @staticmethod
+    def to_underlying_arguments(args: TileSchedulerArguments, *, loc=None, ip=None):
+        return StaticPersistentScheduler.Params.create(args, loc=loc, ip=ip)
+
+    @staticmethod
+    def create(params: Params, *, loc=None, ip=None) -> StaticPersistentScheduler:
+        tile_idx = cute.arch.block_idx()[0]
+        return StaticPersistentScheduler(params, tile_idx, loc=loc, ip=ip)
+    
+    @staticmethod
+    def get_grid_shape(params: Params, *, loc=None, ip=None) -> Tuple[Int32, Int32, Int32]:
+        hardware_info = cutlass.utils.HardwareInfo()
+        sm_count = hardware_info.get_device_multiprocessor_count()
+        return (cutlass.min(sm_count, params.total_blocks), Int32(1), Int32(1))
+    
+    def get_current_work(self, *, loc=None, ip=None) -> cutlass.utils.WorkTileInfo:
+        hn_idx, block_idx = self.params.num_block_divmod.divmod(self._tile_idx)
+        batch_idx, head_idx = self.params.num_head_divmod(hn_idx)
+        is_valid = self._tile_idx < self.params.total_blocks
+        return cutlass.utils.WorkTileInfo((block_idx, head_idx, batch_idx), is_valid)
+    
+    def initial_work_tile_info(self, *, loc=None, ip=None):
+        return self.get_current_work(loc=loc, ip=ip)
+
+    def advance_to_next_work(self, *, loc=None, ip=None):
+        self._tile_idx += cute.arch.grid_dim()[0]
+    
+    def __extract_mlir_values__(self):
+        values, self._values_pos = [], []
+        for obj in [self.params, self._tile_idx]:
+            obj_values = cutlass.extract_mlir_values(obj)
+            values += obj_values
+            self._values_pos.append(len(obj_values))
+        return values
+
+    def __new_from_mlir_values__(self, values):
+        obj_list = []
+        for obj, n_items in zip([self.params, self._tile_idx], self._values_pos):
+            obj_list.append(cutlass.new_from_mlir_values(obj, values[:n_items]))
+            values = values[n_items:]
+        return StaticPersistentScheduler(*(tuple(obj_list)), loc=self._loc)
