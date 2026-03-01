@@ -134,8 +134,8 @@ class FlashSM90:
         self.num_producer_regs = (56, 24, 32)[int(self.num_mma_warpgroups - 1)]
         
         # allows you to debug print
-        self.num_mma_regs = 232
-        self.num_producer_regs = 40
+        # self.num_mma_regs = 232
+        # self.num_producer_regs = 40
 
         # Shared Storage
         self._get_smem_layouts()
@@ -163,7 +163,7 @@ class FlashSM90:
             self.sQ_layout, self.sK_layout, self.sV_layout, self.sO_layout, 
             tiled_mma_qk, tiled_mma_pv, 
             n_block_max, softmax_scale_log2, 
-            StaticPersistentScheduler, tile_sched_params).launch(grid=grid_dim, block=[self.num_threads, 1, 1], cluster=[self.num_mcast, 1, 1], stream=stream, min_blocks_per_mp=1)
+            StaticPersistentScheduler, tile_sched_params).launch(grid=grid_dim, block=[self.num_threads, 1, 1], stream=stream, min_blocks_per_mp=1)
     
     @cute.kernel
     def kernel(self, mQ: cute.Tensor, mK: cute.Tensor, mV: cute.Tensor, mO: cute.Tensor, 
@@ -517,7 +517,6 @@ class FlashSM90:
 
         # Make sure no SMEM dependencies
         cute.arch.barrier(barrier_id=int(NamedBarrierFwd.Epilogue), number_of_threads=self.num_epilogue_threads + cute.arch.WARP_SIZE)
-
         # Copy R2S
         smem_copy_atom_O = my_utils.get_smem_store_atom(90, self.dtype)
         smem_thr_copy_O = cute.make_tiled_copy_C(smem_copy_atom_O, tiled_mma).get_slice(tidx)
@@ -610,13 +609,13 @@ class FlashSM90:
         ]
         sO_struct = cute.struct.Align[cute.struct.MemRange[self.dtype, cute.cosize(self.sO_layout)], self.buffer_align_bytes]
 
-        mbar_ptr_Q_struct = cute.struct.MemRange[cutlass.Int64, 1]
+        # mbar_ptr_Q_struct = cute.struct.MemRange[cutlass.Int64, 1]
         mbar_ptr_K_struct = cute.struct.MemRange[cutlass.Int64, self.num_stages * 2]
         mbar_ptr_V_struct = cute.struct.MemRange[cutlass.Int64, self.num_stages * 2]
 
         @cute.struct
         class SharedStorage:
-            mbar_q: mbar_ptr_Q_struct
+            # mbar_q: mbar_ptr_Q_struct
             mbar_k: mbar_ptr_K_struct
             mbar_v: mbar_ptr_V_struct
             sV: sV_struct
@@ -706,8 +705,8 @@ def profile_ms(op, repeats=30):
 
 if __name__ == "__main__":
     print("starting")
-    bs, h = 4, 16
-    dim = 128
+    bs, h = 2, 8
+    dim = 64
     seqlen = 8192
     rt = 1 / math.sqrt(dim)
     q = torch.randn((bs, h, seqlen, dim), dtype=torch.bfloat16).add(0.5).to('cuda')
@@ -719,18 +718,14 @@ if __name__ == "__main__":
     current_stream = cuda.CUstream(torch.cuda.current_stream().cuda_stream)
 
     # good with dim=64
-    # fa = FlashSM90(qk_mn=(128, 128), num_stages=3, cluster_size_m=1, intra_wg_overlap=True, pingpong=True)
+    # FlashSM90(qk_mn=(128, 128), num_stages=5, cluster_size_m=1, intra_wg_overlap=True, pingpong=True)
+    fa = FlashSM90(qk_mn=(128, 128), num_stages=6, cluster_size_m=1, intra_wg_overlap=True, pingpong=True)
     
     # this actually beats cudnn on 4, 16, 8192, 128 
-    fa = FlashSM90(qk_mn=(128, 128), num_stages=2, cluster_size_m=1, intra_wg_overlap=False, pingpong=True)
+    # fa = FlashSM90(qk_mn=(128, 128), num_stages=2, cluster_size_m=1, intra_wg_overlap=False, pingpong=True)
     compiled_fa = cute.compile(fa, q_cute, k_cute, v_cute, o_cute, rt, current_stream)
     compiled_fa = cute.compile(fa, q_cute, k_cute, v_cute, o_cute, rt, current_stream)
     compiled_fa(q_cute, k_cute, v_cute, o_cute, rt, current_stream)
-
-    with sdpa_kernel([SDPBackend.CUDNN_ATTENTION]):
-        time_torch = do_bench(lambda: F.scaled_dot_product_attention(q, k, v))
-    time_ms = do_bench(lambda: compiled_fa(q_cute, k_cute, v_cute, o_cute, rt, current_stream), return_mode="median")
-    # profile_ms(lambda: compiled_fa(q_cute, k_cute, v_cute, o_cute, 0.125, current_stream), repeats=30)
 
     ref = F.scaled_dot_product_attention(q, k, v)
     # ref = (q @ k.transpose(2, 3)) @ v
@@ -749,6 +744,11 @@ if __name__ == "__main__":
     idx3 = max_idx % dim
     # print(ref[0, 0, idx2, ...])
     # print(o[0, 0, idx2, ...])
+
+    with sdpa_kernel([SDPBackend.CUDNN_ATTENTION]):
+        time_torch = do_bench(lambda: F.scaled_dot_product_attention(q, k, v))
+    time_ms = do_bench(lambda: compiled_fa(q_cute, k_cute, v_cute, o_cute, rt, current_stream), return_mode="median")
+    # profile_ms(lambda: compiled_fa(q_cute, k_cute, v_cute, o_cute, 0.125, current_stream), repeats=30)
 
     print(f'Max error: {max_val.item()} at (bs, h, seqlen, dim) = ({idx0}, {idx1}, {idx2}, {idx3})')
     print(f'{n_incorrect=}')

@@ -24,8 +24,8 @@ def _get_qkvo(bs, nh, lq, lkv, head_dim, head_dim_v=None):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="ncu run ONLY")
-    parser.add_argument("--bs", type=int, default=4)
-    parser.add_argument("--h", type=int, default=16)
+    parser.add_argument("--bs", type=int, default=2)
+    parser.add_argument("--h", type=int, default=8)
     parser.add_argument("--lq", type=int, default=8192)
     parser.add_argument("--lk", type=int, default=8192)
     parser.add_argument("--dim", type=int, default=64)
@@ -36,7 +36,7 @@ if __name__ == '__main__':
     [q_cute, k_cute, v_cute, o_cute] = [convert_from_dlpack(x) for x in (q, k, v, o)]
     current_stream = cuda.CUstream(torch.cuda.current_stream().cuda_stream)
 
-    fa = FlashSM90(qk_mn=(128, 128), num_stages=3, cluster_size_m=1, intra_wg_overlap=True, pingpong=True)
+    fa = FlashSM90(qk_mn=(128, 128), num_stages=6, cluster_size_m=1, intra_wg_overlap=True, pingpong=True)
     compiled_fa = cute.compile(fa, q_cute, k_cute, v_cute, o_cute, rsqrt_d, current_stream)
     compiled_fa(q_cute, k_cute, v_cute, o_cute, rsqrt_d, current_stream)
 
