@@ -36,9 +36,13 @@ if __name__ == '__main__':
     [q_cute, k_cute, v_cute, o_cute] = [convert_from_dlpack(x) for x in (q, k, v, o)]
     current_stream = cuda.CUstream(torch.cuda.current_stream().cuda_stream)
 
-    fa = FlashSM90(qk_mn=(128, 128), num_stages=6, cluster_size_m=1, intra_wg_overlap=True, pingpong=True)
+    fa = FlashSM90(qk_mn=(128, 128), num_stages=3, cluster_size_m=1, intra_wg_overlap=True, pingpong=True, mma_m_size=64)
+    fa2 = FlashSM90(qk_mn=(256, 64), num_stages=4, cluster_size_m=1, intra_wg_overlap=False, pingpong=True, mma_m_size=128)
     compiled_fa = cute.compile(fa, q_cute, k_cute, v_cute, o_cute, rsqrt_d, current_stream)
     compiled_fa(q_cute, k_cute, v_cute, o_cute, rsqrt_d, current_stream)
+
+    compiled_fa2 = cute.compile(fa2, q_cute, k_cute, v_cute, o_cute, rsqrt_d, current_stream)
+    compiled_fa2(q_cute, k_cute, v_cute, o_cute, rsqrt_d, current_stream)
 
     with sdpa_kernel([SDPBackend.FLASH_ATTENTION]):
         time.sleep(1)

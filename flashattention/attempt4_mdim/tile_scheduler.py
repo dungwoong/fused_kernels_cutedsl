@@ -152,7 +152,7 @@ class StaticPersistentScheduler:
         return self.get_current_work(loc=loc, ip=ip)
 
     def advance_to_next_work(self, *, loc=None, ip=None):
-        self._tile_idx += cute.arch.grid_dim()[0]
+        self._tile_idx += cute.arch.grid_dim()[1] * self.params.cluster_m
     
     def __extract_mlir_values__(self):
         values, self._values_pos = [], []

@@ -40,8 +40,6 @@ class NamedBarrierFwd(enum.IntEnum):
     WarpSchedulerWG1 = enum.auto()
     WarpSchedulerWG2 = enum.auto()
     WarpSchedulerWG3 = enum.auto()
-    PFull = enum.auto()
-    PEmpty = enum.auto()
 
 @cute.jit
 def print0(x):
@@ -154,7 +152,7 @@ class FlashSM90:
             cute.ceil_div(cute.size(mQ.shape[0]), self.tile_m), # n blocks
             cute.size(mQ.shape[2]),
             cute.size(mQ.shape[3]),
-            (self.num_mcast, 1),
+            self.num_mcast,
         )
         tile_sched_params = StaticPersistentScheduler.to_underlying_arguments(tile_sched_args)
         grid_dim = StaticPersistentScheduler.get_grid_shape(tile_sched_params)
@@ -200,7 +198,7 @@ class FlashSM90:
             consumer_group=pipeline_kv_consumer_group,
             tx_count=self.tma_copy_bytes["K"],
             cta_layout_vmnk=cute.make_layout((1, self.num_mcast, 1, 1)),
-            defer_sync=False,
+            defer_sync=True,
         )
         pipeline_v = PipelineTmaAsync.create(
             barrier_storage=storage.mbar_v.data_ptr(),
@@ -209,8 +207,10 @@ class FlashSM90:
             consumer_group=pipeline_kv_consumer_group,
             tx_count=self.tma_copy_bytes["V"],
             cta_layout_vmnk=cute.make_layout((1, self.num_mcast, 1, 1)),
-            defer_sync=False,
+            defer_sync=True,
         )
+        pipeline_init_arrive()
+        pipeline_init_wait()
 
         sQ = storage.sQ.get_tensor(sQ_layout.outer, swizzle=sQ_layout.inner)
         sK = storage.sK.get_tensor(sK_layout.outer, swizzle=sK_layout.inner)
@@ -247,6 +247,7 @@ class FlashSM90:
         mcast_mask = cute.make_layout_image_mask(
             cta_layout, (cta_rank_in_cluster, 0), mode=0
         )
+        mcast_mask = mcast_mask if self.is_mcast else 0
 
         if warp_idx_in_wg == 0:
             k_producer_state = pipeline.make_pipeline_state(pipeline.PipelineUserType.Producer, self.num_stages)
@@ -264,7 +265,7 @@ class FlashSM90:
                 gV = cute.local_tile(mV_curr, (self.tile_n, self.hdimv), (None, 0))
                 
                 load_Q, _, _ = my_utils.tma_get_copy_fn(
-                    tma_atom_q, 0, cute.make_layout(1), gQ, sQ, single_stage=True, mcast_mask=0
+                    tma_atom_q, 0, cute.make_layout((1, 1)), gQ, sQ, single_stage=True, mcast_mask=0
                 )
 
                 load_K, _, _ = my_utils.tma_get_copy_fn(
@@ -704,6 +705,38 @@ def profile_ms(op, repeats=30):
     torch.cuda.synchronize()
     return statistics.median([s.elapsed_time(e) for s, e in zip(start, end)])
 
+def dump_kernel_attributes(compiled_kernel):
+    from cuda.bindings import driver
+    from cutlass.utils import HardwareInfo
+    import torch
+    device_id = torch.cuda.current_device()
+    hardware_info = HardwareInfo(device_id=device_id)
+    cubin_data = compiled_kernel.artifacts.CUBIN
+    assert cubin_data is not None, "cubin_data is None, need '--keep-cubin' option when compiling"
+    cuda_library = hardware_info._checkCudaErrors(
+        driver.cuLibraryLoadData(cubin_data, None, None, 0, None, None, 0)
+    )
+    kernels = hardware_info._checkCudaErrors(driver.cuLibraryEnumerateKernels(1, cuda_library))
+    kernel = hardware_info._checkCudaErrors(driver.cuKernelGetFunction(kernels[0]))
+    # more metrics: https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__EXEC.html#group__CUDA__EXEC_1g5e92a1b0d8d1b82cb00dcfb2de15961b
+    local_size_bytes = hardware_info._checkCudaErrors(
+        driver.cuFuncGetAttribute(
+            driver.CUfunction_attribute.CU_FUNC_ATTRIBUTE_LOCAL_SIZE_BYTES,
+            kernel,
+        )
+    )
+    num_regs = hardware_info._checkCudaErrors(
+        driver.cuFuncGetAttribute(
+            driver.CUfunction_attribute.CU_FUNC_ATTRIBUTE_NUM_REGS,
+            kernel,
+        )
+    )
+
+    print(f"--- Kernel Info ---")
+    print(f"local_size_bytes: {local_size_bytes}")
+    print(f"num_regs: {num_regs}")
+    print(f"--- End Kernel Info ---")
+
 if __name__ == "__main__":
     print("starting")
     bs, h = 2, 8
@@ -720,12 +753,13 @@ if __name__ == "__main__":
 
     # good with dim=64
     # FlashSM90(qk_mn=(128, 128), num_stages=5, cluster_size_m=1, intra_wg_overlap=True, pingpong=True)
-    # fa = FlashSM90(qk_mn=(128, 128), num_stages=3, cluster_size_m=1, intra_wg_overlap=True, pingpong=True, mma_m_size=64)
-    fa = FlashSM90(qk_mn=(256, 64), num_stages=4, cluster_size_m=1, intra_wg_overlap=False, pingpong=True, mma_m_size=128)
+    fa = FlashSM90(qk_mn=(128, 128), num_stages=3, cluster_size_m=1, intra_wg_overlap=True, pingpong=True, mma_m_size=64)
+    # fa = FlashSM90(qk_mn=(256, 64), num_stages=2, cluster_size_m=1, intra_wg_overlap=False, pingpong=False, mma_m_size=128)
     
     # this actually beats cudnn on 4, 16, 8192, 128 
     # fa = FlashSM90(qk_mn=(128, 128), num_stages=2, cluster_size_m=1, intra_wg_overlap=False, pingpong=True)
     compiled_fa = cute.compile(fa, q_cute, k_cute, v_cute, o_cute, rt, current_stream, options="--keep-cubin")
+    dump_kernel_attributes(compiled_fa)
     compiled_fa(q_cute, k_cute, v_cute, o_cute, rt, current_stream)
 
     ref = F.scaled_dot_product_attention(q, k, v)
