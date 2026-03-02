@@ -34,7 +34,6 @@ import enum
 torch.manual_seed(42)
 
 THREADS_PER_WG = 128
-THREADS_PER_WARP = 32
 
 class NamedBarrierFwd(enum.IntEnum):
     Epilogue = enum.auto()  # starts from 1 as barrier 0 is reserved for sync_threads()
@@ -131,12 +130,13 @@ class FlashSM90:
 
         assert self.num_mma_warpgroups in (1, 2, 3, 4)
 
-        self.num_mma_regs = (256, 240, 160, 160)[int(self.num_mma_warpgroups - 1)]
-        self.num_producer_regs = (56, 24, 32, 32)[int(self.num_mma_warpgroups - 1)]
+        # This actually matters, you don't want spills
+        # self.num_mma_regs = (256, 240, 160)[int(self.num_mma_warpgroups - 1)]
+        # self.num_producer_regs = (56, 24, 32)[int(self.num_mma_warpgroups - 1)]
         
         # allows you to debug print
-        # self.num_mma_regs = 232
-        # self.num_producer_regs = 40
+        self.num_mma_regs = 120
+        self.num_producer_regs = 24
 
         # Shared Storage
         self._get_smem_layouts()
@@ -237,7 +237,7 @@ class FlashSM90:
              sQ: cute.Tensor, sK: cute.Tensor, sV: cute.Tensor, 
              tma_atom_q: cute.CopyAtom, tma_atom_k: cute.CopyAtom, tma_atom_v: cute.CopyAtom, 
              pipeline_k: pipeline.PipelineAsync, pipeline_v: pipeline.PipelineAsync, n_block_max: int, TileSchedulerCls: Callable):
-        tidx, _, _ = cute.arch.thread_idx()
+        # tidx, _, _ = cute.arch.thread_idx()
         warp_idx_in_wg = cute.arch.make_warp_uniform(cute.arch.warp_idx()) % 4
         cta_rank_in_cluster = cute.arch.make_warp_uniform(
             cute.arch.block_idx_in_cluster()
@@ -720,7 +720,7 @@ if __name__ == "__main__":
 
     # good with dim=64
     # FlashSM90(qk_mn=(128, 128), num_stages=5, cluster_size_m=1, intra_wg_overlap=True, pingpong=True)
-    fa = FlashSM90(qk_mn=(128, 128), num_stages=6, cluster_size_m=1, intra_wg_overlap=True, pingpong=True)
+    fa = FlashSM90(qk_mn=(256, 64), num_stages=2, cluster_size_m=1, intra_wg_overlap=False, pingpong=False)
     
     # this actually beats cudnn on 4, 16, 8192, 128 
     # fa = FlashSM90(qk_mn=(128, 128), num_stages=2, cluster_size_m=1, intra_wg_overlap=False, pingpong=True)
