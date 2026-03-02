@@ -27,7 +27,7 @@ class TileSchedulerArguments(ParamsBase):
     num_block: Int32
     num_head: Int32
     num_batch: Int32
-    cluster_shape_mn: Tuple[int, int]
+    cluster_shape_m: int
 
 class SingleTileScheduler:
     @dataclass
@@ -105,6 +105,7 @@ class StaticPersistentScheduler:
         total_blocks: Int32
         num_block_divmod: FastDivmod # num blocks in a head/batch
         num_head_divmod: FastDivmod
+        cluster_m: int
 
         @staticmethod
         def create(args: TileSchedulerArguments, *, loc=None, ip=None) -> StaticPersistentScheduler.Params:
@@ -113,6 +114,7 @@ class StaticPersistentScheduler:
                 total_blocks,
                 FastDivmod.create(args.num_block),
                 FastDivmod.create(args.num_head),
+                args.cluster_shape_m,
             )
     
     def __init__(self, params: Params, tile_idx: Int32, *, loc=None, ip=None):
@@ -127,14 +129,18 @@ class StaticPersistentScheduler:
 
     @staticmethod
     def create(params: Params, *, loc=None, ip=None) -> StaticPersistentScheduler:
-        tile_idx = cute.arch.block_idx()[0]
+        # this just happens to work because everything basically runs in a straight line
+        # the blocks should be divisible by cluster m too
+        bidx, bidy, _ = cute.arch.block_idx()
+        tile_idx = bidy * params.cluster_m + bidx
         return StaticPersistentScheduler(params, tile_idx, loc=loc, ip=ip)
     
     @staticmethod
     def get_grid_shape(params: Params, *, loc=None, ip=None) -> Tuple[Int32, Int32, Int32]:
         hardware_info = cutlass.utils.HardwareInfo()
-        sm_count = hardware_info.get_device_multiprocessor_count()
-        return (cutlass.min(sm_count, params.total_blocks), Int32(1), Int32(1))
+        total_clusters = params.total_blocks // params.cluster_m
+        cluster_count = hardware_info.get_device_multiprocessor_count() // params.cluster_m
+        return (params.cluster_m, cutlass.min(total_clusters, cluster_count), Int32(1))
     
     def get_current_work(self, *, loc=None, ip=None) -> cutlass.utils.WorkTileInfo:
         hn_idx, block_idx = self.params.num_block_divmod.divmod(self._tile_idx)

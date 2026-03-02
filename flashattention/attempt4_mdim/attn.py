@@ -166,7 +166,7 @@ class FlashSM90:
             self.sQ_layout, self.sK_layout, self.sV_layout, self.sO_layout, 
             tiled_mma_qk, tiled_mma_pv, 
             n_block_max, softmax_scale_log2, 
-            StaticPersistentScheduler, tile_sched_params).launch(grid=grid_dim, block=[self.num_threads, 1, 1], stream=stream, min_blocks_per_mp=1)
+            StaticPersistentScheduler, tile_sched_params).launch(grid=grid_dim, block=[self.num_threads, 1, 1], cluster=[self.num_mcast, 1, 1], stream=stream, min_blocks_per_mp=1)
     
     @cute.kernel
     def kernel(self, mQ: cute.Tensor, mK: cute.Tensor, mV: cute.Tensor, mO: cute.Tensor, 
@@ -268,11 +268,11 @@ class FlashSM90:
                 )
 
                 load_K, _, _ = my_utils.tma_get_copy_fn(
-                    tma_atom_k, 0, cute.make_layout(1), gK, sK, mcast_mask=mcast_mask
+                    tma_atom_k, cta_rank_in_cluster, cute.make_layout((self.num_mcast, 1)), gK, sK, mcast_mask=mcast_mask
                 )
 
                 load_V, _, _ = my_utils.tma_get_copy_fn(
-                    tma_atom_v, 0, cute.make_layout(1), gV, sV, mcast_mask=mcast_mask
+                    tma_atom_v, cta_rank_in_cluster, cute.make_layout((self.num_mcast, 1)), gV, sV, mcast_mask=mcast_mask
                 )
 
                 if cutlass.const_expr(self.intra_wg_overlap):
@@ -725,8 +725,7 @@ if __name__ == "__main__":
     
     # this actually beats cudnn on 4, 16, 8192, 128 
     # fa = FlashSM90(qk_mn=(128, 128), num_stages=2, cluster_size_m=1, intra_wg_overlap=False, pingpong=True)
-    compiled_fa = cute.compile(fa, q_cute, k_cute, v_cute, o_cute, rt, current_stream)
-    compiled_fa = cute.compile(fa, q_cute, k_cute, v_cute, o_cute, rt, current_stream)
+    compiled_fa = cute.compile(fa, q_cute, k_cute, v_cute, o_cute, rt, current_stream, options="--keep-cubin")
     compiled_fa(q_cute, k_cute, v_cute, o_cute, rt, current_stream)
 
     ref = F.scaled_dot_product_attention(q, k, v)
