@@ -79,6 +79,7 @@ class FlashSM90:
         num_stages: int=2,
         intra_wg_overlap: bool=False,
         pingpong: bool=False,
+        mma_m_size: int=64,
         ):
         self.acc_dtype = cutlass.Float32
         self.num_stages = num_stages
@@ -107,6 +108,7 @@ class FlashSM90:
         self.sV_layout = None
         self.sO_layout = None
         self.shared_storage = None
+        self.mma_m_size=mma_m_size
 
     @cute.jit
     def __call__(
@@ -127,7 +129,6 @@ class FlashSM90:
         self.num_epilogue_threads = self.num_mma_threads
         self.num_mma_warpgroups = self.num_mma_threads / THREADS_PER_WG
         self.num_threads = int((self.num_mma_warpgroups + 1) * THREADS_PER_WG)
-        print('num threads', self.num_threads)
 
         assert self.num_mma_warpgroups in (1, 2, 3, 4)
 
@@ -136,7 +137,7 @@ class FlashSM90:
         # self.num_producer_regs = (56, 24, 32)[int(self.num_mma_warpgroups - 1)]
         
         # allows you to debug print
-        self.num_mma_regs = 120
+        self.num_mma_regs = 240
         self.num_producer_regs = 24
 
         # Shared Storage
@@ -220,17 +221,17 @@ class FlashSM90:
         TileSchedulerCls = partial(TileScheduler.create, tile_sched_params)
         if warp_idx < 4:
             cute.arch.warpgroup_reg_dealloc(self.num_producer_regs)
-            # self.load(
-            #     mQ, mK, mV, 
-            #     sQ, sK, sV, 
-            #     tma_atom_q, tma_atom_k, tma_atom_v, 
-            #     pipeline_k, pipeline_v,
-            #     n_block_max, TileSchedulerCls)
+            self.load(
+                mQ, mK, mV, 
+                sQ, sK, sV, 
+                tma_atom_q, tma_atom_k, tma_atom_v, 
+                pipeline_k, pipeline_v,
+                n_block_max, TileSchedulerCls)
         else:
             tidx, _, _ = cute.arch.thread_idx()
             tidx = tidx - 128
             cute.arch.warpgroup_reg_alloc(self.num_mma_regs)
-            # self.mma(n_block_max, sQ, sK, sVt, sO, mO, pipeline_k, pipeline_v, mma_qk, mma_pv, tma_atom_o, tidx, softmax_scale_log2, TileSchedulerCls)
+            self.mma(n_block_max, sQ, sK, sVt, sO, mO, pipeline_k, pipeline_v, mma_qk, mma_pv, tma_atom_o, tidx, softmax_scale_log2, TileSchedulerCls)
     
     @cute.jit
     def load(self, mQ: cute.Tensor, mK: cute.Tensor, mV: cute.Tensor, 
@@ -363,11 +364,11 @@ class FlashSM90:
                     O_should_accumulate = True
                 kv_consumer_state = self.last_half_block_overlap(acc_o, tOrP, tOrVt, kv_consumer_state, pipeline_v, mma_pv)
             if cutlass.const_expr(not self.intra_wg_overlap):
-                # self.inter_wg_barrier() # all consumers sync before starting
+                self.inter_wg_barrier() # all consumers sync before starting
                 kv_consumer_state = self.mma_one_n_block(pipeline_k, pipeline_v, kv_consumer_state, mma_qk, tSrQ, tSrK, softmax, tOrP, acc_o, mma_pv, tOrVt, False, True, sQ, sK)
                 for _ in cutlass.range(n_block_max-1, unroll=1):
                     kv_consumer_state = self.mma_one_n_block(pipeline_k, pipeline_v, kv_consumer_state, mma_qk, tSrQ, tSrK, softmax, tOrP, acc_o, mma_pv, tOrVt, True, False, sQ, sK)
-                # self.inter_wg_arrive()
+                self.inter_wg_arrive()
             row_scale = softmax.finalize()
             softmax.rescale_O(acc_o, row_scale)
 
@@ -403,22 +404,22 @@ class FlashSM90:
         pipeline_k.consumer_wait(kv_consumer_state, pipeline_k.consumer_try_wait(kv_consumer_state))
         
         # QKGemm
-        # p_acc = my_utils.gemm_zero_init(mma_qk, (self.tile_m, self.tile_n), tSrQ, tSrK, B_idx=kv_consumer_state.index, wg_wait=-1)
-        # self.inter_wg_arrive()
-        # cute.nvgpu.warpgroup.wait_group(0)
+        p_acc = my_utils.gemm_zero_init(mma_qk, (self.tile_m, self.tile_n), tSrQ, tSrK, B_idx=kv_consumer_state.index, wg_wait=-1)
+        self.inter_wg_arrive()
+        cute.nvgpu.warpgroup.wait_group(0)
         pipeline_k.consumer_release(kv_consumer_state)
 
         # Softmax
         # TODO they call PTX directly to convert to f16 damnn
-        # row_scale = softmax.online_softmax(p_acc, is_first=softmax_is_first) # rescale p_acc, internally store sum/max
-        # tOrP_acc = cute.make_tensor(p_acc.iterator, my_utils.convert_layout_acc_frgA(p_acc.layout))
-        # my_utils.cvt_f16(tOrP_acc, tOrP)
-        # softmax.rescale_O(acc_o, row_scale)
+        row_scale = softmax.online_softmax(p_acc, is_first=softmax_is_first) # rescale p_acc, internally store sum/max
+        tOrP_acc = cute.make_tensor(p_acc.iterator, my_utils.convert_layout_acc_frgA(p_acc.layout))
+        my_utils.cvt_f16(tOrP_acc, tOrP)
+        softmax.rescale_O(acc_o, row_scale)
 
         # PVGemm
         pipeline_v.consumer_wait(kv_consumer_state, pipeline_v.consumer_try_wait(kv_consumer_state))
-        # self.inter_wg_barrier()
-        # my_utils.gemm_w_index(mma_pv, acc_o, tOrP, tOrVt, not O_should_accumulate, B_idx=kv_consumer_state.index, wg_wait=0)
+        self.inter_wg_barrier()
+        my_utils.gemm_w_index(mma_pv, acc_o, tOrP, tOrVt, not O_should_accumulate, B_idx=kv_consumer_state.index, wg_wait=0)
         pipeline_v.consumer_release(kv_consumer_state)
         kv_consumer_state.advance()
         return kv_consumer_state
@@ -557,7 +558,7 @@ class FlashSM90:
             cute.nvgpu.warpgroup.OperandMajorMode.K,
             cute.nvgpu.warpgroup.OperandMajorMode.K,
             cutlass.Float32,
-            atom_layout_mnk=(self.tile_m // 64, 1, 1),
+            atom_layout_mnk=(self.tile_m // self.mma_m_size, 1, 1),
             tiler_mn=(64, self.tile_n),
         )
 
@@ -567,7 +568,7 @@ class FlashSM90:
             cute.nvgpu.warpgroup.OperandMajorMode.K,
             cute.nvgpu.warpgroup.OperandMajorMode.MN,
             cutlass.Float32,
-            atom_layout_mnk=(self.tile_m // 64, 1, 1),
+            atom_layout_mnk=(self.tile_m // self.mma_m_size, 1, 1),
             tiler_mn=(64, self.hdimv),
             a_source=cute.nvgpu.warpgroup.OperandSource.RMEM,
         )
@@ -707,7 +708,7 @@ if __name__ == "__main__":
     print("starting")
     bs, h = 2, 8
     dim = 64
-    seqlen = 512
+    seqlen = 8192
     rt = 1 / math.sqrt(dim)
     q = torch.randn((bs, h, seqlen, dim), dtype=torch.bfloat16).add(0.5).to('cuda')
     k = torch.randn((bs, h, seqlen, dim), dtype=torch.bfloat16).add(0.5).to('cuda')
@@ -719,7 +720,8 @@ if __name__ == "__main__":
 
     # good with dim=64
     # FlashSM90(qk_mn=(128, 128), num_stages=5, cluster_size_m=1, intra_wg_overlap=True, pingpong=True)
-    fa = FlashSM90(qk_mn=(256, 64), num_stages=2, cluster_size_m=1, intra_wg_overlap=False, pingpong=False)
+    # fa = FlashSM90(qk_mn=(128, 128), num_stages=3, cluster_size_m=1, intra_wg_overlap=True, pingpong=True, mma_m_size=64)
+    fa = FlashSM90(qk_mn=(256, 64), num_stages=4, cluster_size_m=1, intra_wg_overlap=False, pingpong=True, mma_m_size=128)
     
     # this actually beats cudnn on 4, 16, 8192, 128 
     # fa = FlashSM90(qk_mn=(128, 128), num_stages=2, cluster_size_m=1, intra_wg_overlap=False, pingpong=True)
