@@ -35,21 +35,25 @@ def run_torch(q, k, v):
 CONFIGS_64 = (
     [256, 2, False, False],
     [256, 2, False, True],
+    [128, 6, False, False],
+    [128, 6, True, False],
+    [128, 6, False, True],
+    [128, 6, True, True],
     [128, 2, False, False],
-    [128, 2, True, False],
     [128, 2, False, True],
+    [128, 2, True, False],
     [128, 2, True, True],
-    [128, 3, False, False],
-    [128, 3, False, True],
-    [128, 3, True, False],
-    [128, 3, True, True],
 )
 
 CONFIGS_128 = (
     [128, 2, False, False],
     [128, 2, False, True],
     [128, 2, True, False],
-    [128, 2, True, True], # Idk if you can do 3 here
+    [128, 2, True, True],
+    [128, 3, False, False],
+    [128, 3, False, True],
+    [128, 3, True, False],
+    [128, 3, True, True], # Idk if you can do 3 here
 )
 
 def get_str(method, problem_dims, mma_qk_n=None, num_stages=None, iwo=None, pingpong=None, correct=None, ms=None, tflops=None, error=None, torch_time=None):

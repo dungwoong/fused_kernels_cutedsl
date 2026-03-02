@@ -1,0 +1,1556 @@
+torch,32,8,512,64,None,None,None,None,True,0.05134836347265677,341.10947885081157,None,None
+cute,32,8,512,64,256,2,False,False,True,0.06819172630197981,256.85540539676106,None,0.05134836347265677
+cute,32,8,512,64,256,2,False,True,True,0.06991294897713904,250.53175070225396,None,0.05134836347265677
+cute,32,8,512,64,128,6,False,False,True,0.061096949344974456,286.6822925167987,None,0.05134836347265677
+cute,32,8,512,64,128,6,True,False,True,0.06451441072029611,271.49614029551515,None,0.05134836347265677
+cute,32,8,512,64,128,6,False,True,True,0.06017011967607033,291.09819954315105,None,0.05134836347265677
+cute,32,8,512,64,128,6,True,True,True,0.06027353046380955,290.59876481794777,None,0.05134836347265677
+cute,32,8,512,64,128,2,False,False,True,0.06082953853357551,287.94256748030693,None,0.05134836347265677
+cute,32,8,512,64,128,2,False,True,True,0.060365913063287736,290.1540391783159,None,0.05134836347265677
+cute,32,8,512,64,128,2,True,False,True,0.06775067804948143,258.5275012481453,None,0.05134836347265677
+cute,32,8,512,64,128,2,True,True,True,0.06890902648457384,254.1817000987679,None,0.05134836347265677
+torch,16,8,1024,64,None,None,None,None,True,0.08189230451805402,427.76701930859804,None,None
+cute,16,8,1024,64,256,2,False,False,True,0.1101267250106398,318.0956030846783,None,0.08189230451805402
+cute,16,8,1024,64,256,2,False,True,True,0.1120121771123557,312.7412385964228,None,0.08189230451805402
+cute,16,8,1024,64,128,6,False,False,True,0.09991399997047015,350.60979460689646,None,0.08189230451805402
+cute,16,8,1024,64,None,None,None,None,None,None,None,"CUDA error: unspecified launch failure
+CUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+",None
+cute,16,8,1024,64,128,6,False,True,True,0.09590950846427777,365.24873882601014,None,0.08189230451805402
+cute,16,8,1024,64,None,None,None,None,None,None,None,"CUDA error: unspecified launch failure
+CUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+",None
+cute,16,8,1024,64,128,2,False,False,True,0.09704843610525131,360.9623030917082,None,0.08189230451805402
+cute,16,8,1024,64,128,2,False,True,True,0.09375365749672726,373.64757752755247,None,0.08189230451805402
+cute,16,8,1024,64,128,2,True,False,True,0.10660785313593138,328.59518297712646,None,0.08189230451805402
+cute,16,8,1024,64,128,2,True,True,True,0.11059881498416264,316.7378150752907,None,0.08189230451805402
+torch,8,8,2048,64,None,None,None,None,True,0.1432801491299341,488.9836759763863,None,None
+cute,8,8,2048,64,256,2,False,False,True,0.19219419637731477,364.5357421639063,None,0.1432801491299341
+cute,8,8,2048,64,256,2,False,True,True,0.19742368629165724,354.87967696285835,None,0.1432801491299341
+cute,8,8,2048,64,128,6,False,False,True,0.17428548970058852,401.9936148233654,None,0.1432801491299341
+cute,8,8,2048,64,None,None,None,None,None,None,None,"CUDA error: unspecified launch failure
+CUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+",None
+cute,8,8,2048,64,128,6,False,True,True,0.16561025294285375,423.051428103161,None,0.1432801491299341
+cute,8,8,2048,64,128,6,True,True,True,0.1624643073345606,431.243361483227,None,0.1432801491299341
+cute,8,8,2048,64,128,2,False,False,True,0.17274542858025857,405.5774708009071,None,0.1432801491299341
+cute,8,8,2048,64,128,2,False,True,True,0.16506792078999913,424.44136741222457,None,0.1432801491299341
+cute,8,8,2048,64,128,2,True,False,True,0.18962909115685356,369.46680273886784,None,0.1432801491299341
+cute,8,8,2048,64,128,2,True,True,True,0.1953893884712336,358.57450890335787,None,0.1432801491299341
+torch,4,8,4096,64,None,None,None,None,True,0.2600607315839176,538.8099432719789,None,None
+cute,4,8,4096,64,256,2,False,False,True,0.3525840910686844,397.4181240205293,None,0.2600607315839176
+cute,4,8,4096,64,256,2,False,True,True,0.36940248293438177,379.32421817773917,None,0.2600607315839176
+cute,4,8,4096,64,128,6,False,False,True,0.3261185464533893,429.6698533581475,None,0.2600607315839176
+cute,4,8,4096,64,128,6,True,False,True,0.3555170224849568,394.1395184190628,None,0.2600607315839176
+cute,4,8,4096,64,128,6,False,True,True,0.3093294216526879,452.99056030088565,None,0.2600607315839176
+cute,4,8,4096,64,128,6,True,True,True,0.29939377672142453,468.02344913929136,None,0.2600607315839176
+cute,4,8,4096,64,128,2,False,False,True,0.3216790796696455,435.59969201572676,None,0.2600607315839176
+cute,4,8,4096,64,128,2,False,True,True,0.3084792802842815,454.23896186112813,None,0.2600607315839176
+cute,4,8,4096,64,128,2,True,False,True,0.3580472573291424,391.35422814645034,None,0.2600607315839176
+cute,4,8,4096,64,128,2,True,True,True,0.34436561081601286,406.9027325346516,None,0.2600607315839176
+torch,2,8,8192,64,None,None,None,None,True,0.5062791929089812,553.541642613748,None,None
+cute,2,8,8192,64,256,2,False,False,True,0.6653919965028763,421.17521331320756,None,0.5062791929089812
+cute,2,8,8192,64,256,2,False,True,True,0.7036698189648715,398.26436847363277,None,0.5062791929089812
+cute,2,8,8192,64,128,6,False,False,True,0.6295731033104054,445.1375298442934,None,0.5062791929089812
+cute,2,8,8192,64,128,6,True,False,True,0.6919746834840348,404.9954756335617,None,0.5062791929089812
+cute,2,8,8192,64,128,6,False,True,True,0.5924948730938872,472.99416212769813,None,0.5062791929089812
+cute,2,8,8192,64,128,6,True,True,True,0.5753991107145945,487.04735694839474,None,0.5062791929089812
+cute,2,8,8192,64,128,2,False,False,True,0.6188941708632878,452.81831572769136,None,0.5062791929089812
+cute,2,8,8192,64,128,2,False,True,True,0.5890889133725847,475.72889202678084,None,0.5062791929089812
+cute,2,8,8192,64,128,2,True,False,True,0.6862298196012323,408.3859489330428,None,0.5062791929089812
+cute,2,8,8192,64,128,2,True,True,True,0.6416014152414659,436.79239073768184,None,0.5062791929089812
+torch,1,8,16384,64,None,None,None,None,True,1.0008371638995346,560.0243999175306,None,None
+cute,1,8,16384,64,256,2,False,False,True,1.304705336689949,429.5937299911543,None,1.0008371638995346
+cute,1,8,16384,64,256,2,False,True,True,1.3829099095386008,405.29988849020907,None,1.0008371638995346
+cute,1,8,16384,64,128,6,False,False,True,1.2217534634531761,458.7613204253306,None,1.0008371638995346
+cute,1,8,16384,64,128,6,True,False,True,1.3713386641608345,408.719776358806,None,1.0008371638995346
+cute,1,8,16384,64,128,6,False,True,True,1.1641060394399307,481.47953291064607,None,1.0008371638995346
+cute,1,8,16384,64,128,6,True,True,True,1.1033181571043456,508.00689585224666,None,1.0008371638995346
+cute,1,8,16384,64,128,2,False,False,True,1.2289225605298888,456.08507006847174,None,1.0008371638995346
+cute,1,8,16384,64,128,2,False,True,True,1.1637190461158753,481.6396483315698,None,1.0008371638995346
+cute,1,8,16384,64,128,2,True,False,True,1.3681105971336365,409.6841536804873,None,1.0008371638995346
+cute,1,8,16384,64,128,2,True,True,True,1.241916982632763,451.31296211104217,None,1.0008371638995346
+torch,32,16,512,64,None,None,None,None,True,0.09244973564126392,378.9175465458484,None,None
+cute,32,16,512,64,256,2,False,False,True,0.12289105464111674,285.0559555396592,None,0.09244973564126392
+cute,32,16,512,64,256,2,False,True,True,0.12574825627267908,278.57902802276107,None,0.09244973564126392
+cute,32,16,512,64,128,6,False,False,True,0.10951057912033295,319.8853233120725,None,0.09244973564126392
+cute,32,16,512,64,128,6,True,False,True,0.11477166967927863,305.2218993231621,None,0.09244973564126392
+cute,32,16,512,64,128,6,False,True,True,0.10638814805834382,329.27377388681407,None,0.09244973564126392
+cute,32,16,512,64,128,6,True,True,True,0.10590473357417168,330.77678235662364,None,0.09244973564126392
+cute,32,16,512,64,128,2,False,False,True,0.1085182223469019,322.8105496975099,None,0.09244973564126392
+cute,32,16,512,64,128,2,False,True,True,0.10637925944670483,329.30128664366356,None,0.09244973564126392
+cute,32,16,512,64,128,2,True,False,True,0.12239148611322455,286.21947588407363,None,0.09244973564126392
+cute,32,16,512,64,128,2,True,True,True,0.12566044423039313,278.77370020889356,None,0.09244973564126392
+torch,16,16,1024,64,None,None,None,None,True,0.1546483697537378,453.0384259954776,None,None
+cute,16,16,1024,64,256,2,False,False,True,0.2072123559099613,338.1152330821597,None,0.1546483697537378
+cute,16,16,1024,64,256,2,False,True,True,0.21065547989635933,332.5888035311008,None,0.1546483697537378
+cute,16,16,1024,64,128,6,False,False,True,0.185310099237036,378.07790457433146,None,0.1546483697537378
+cute,16,16,1024,64,None,None,None,None,None,None,None,"CUDA error: unspecified launch failure
+CUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+",None
+cute,16,16,1024,64,128,6,False,True,True,0.1789158019098905,391.5900846549372,None,0.1546483697537378
+cute,16,16,1024,64,128,6,True,True,True,0.17508435647676487,400.15941701392245,None,0.1546483697537378
+cute,16,16,1024,64,128,2,False,False,True,0.18339775994420052,382.02022771334026,None,0.1546483697537378
+cute,16,16,1024,64,128,2,False,True,True,0.17721537252267203,395.3474973342771,None,0.1546483697537378
+cute,16,16,1024,64,128,2,True,False,True,0.20114133394125736,348.3205199208894,None,0.1546483697537378
+cute,16,16,1024,64,128,2,True,True,True,0.2089861222371763,335.24548551835284,None,0.1546483697537378
+torch,8,16,2048,64,None,None,None,None,True,0.2750222600888515,509.4980602178541,None,None
+cute,8,16,2048,64,256,2,False,False,True,0.3676700698233199,381.1115441062005,None,0.2750222600888515
+cute,8,16,2048,64,256,2,False,True,True,0.3821089877801783,366.71031698581993,None,0.2750222600888515
+cute,8,16,2048,64,128,6,False,False,True,0.3353629420543539,417.8258550978764,None,0.2750222600888515
+cute,8,16,2048,64,128,6,True,False,True,0.36445618542127833,384.4723004770248,None,0.2750222600888515
+cute,8,16,2048,64,128,6,False,True,True,0.31996188739712317,437.9374967809365,None,0.2750222600888515
+cute,8,16,2048,64,128,6,True,True,True,0.31256211225716574,448.3054808533901,None,0.2750222600888515
+cute,8,16,2048,64,128,2,False,False,True,0.3340369647946851,419.4844367542568,None,0.2750222600888515
+cute,8,16,2048,64,128,2,False,True,True,0.3179560012438081,440.7003091114915,None,0.2750222600888515
+cute,8,16,2048,64,128,2,True,False,True,0.36695905853720273,381.84997691723186,None,0.2750222600888515
+cute,8,16,2048,64,128,2,True,True,True,0.359370045883711,389.91371049701416,None,0.2750222600888515
+torch,4,16,4096,64,None,None,None,None,True,0.5215012678285924,537.3843427665678,None,None
+cute,4,16,4096,64,256,2,False,False,True,0.6846945899374345,409.3016363538204,None,0.5215012678285924
+cute,4,16,4096,64,256,2,False,True,True,0.7310487302866849,383.3487487955826,None,0.5215012678285924
+cute,4,16,4096,64,128,6,False,False,True,0.6324874197227367,443.0864667424557,None,0.5215012678285924
+cute,4,16,4096,64,128,6,True,False,True,0.6924135784308115,404.73876422110527,None,0.5215012678285924
+cute,4,16,4096,64,128,6,False,True,True,0.6045548151916181,463.5586534451367,None,0.5215012678285924
+cute,4,16,4096,64,128,6,True,True,True,0.5816671111517482,481.79897176769873,None,0.5215012678285924
+cute,4,16,4096,64,128,2,False,False,True,0.6259686955507251,447.7006886381754,None,0.5215012678285924
+cute,4,16,4096,64,128,2,False,True,True,0.6059912124150236,462.4598679362833,None,0.5215012678285924
+cute,4,16,4096,64,128,2,True,False,True,0.6971643422331129,401.98070825930614,None,0.5215012678285924
+cute,4,16,4096,64,128,2,True,True,True,0.6479628200040144,432.50416136880165,None,0.5215012678285924
+torch,2,16,8192,64,None,None,None,None,True,1.0179979082034982,550.5838741035577,None,None
+cute,2,16,8192,64,256,2,False,False,True,1.3132854446451714,426.7870586804807,None,1.0179979082034982
+cute,2,16,8192,64,256,2,False,True,True,1.4079978624979654,398.0781839637274,None,1.0179979082034982
+cute,2,16,8192,64,128,6,False,False,True,1.2440140048662822,450.5521882675645,None,1.0179979082034982
+cute,2,16,8192,64,128,6,True,False,True,1.3545631909370421,413.78153184590025,None,1.0179979082034982
+cute,2,16,8192,64,128,6,False,True,True,1.1657772827148438,480.7892900629631,None,1.0179979082034982
+cute,2,16,8192,64,128,6,True,True,True,1.1295234502530564,496.22097885832125,None,1.0179979082034982
+cute,2,16,8192,64,128,2,False,False,True,1.2406876695399383,451.7601374533186,None,1.0179979082034982
+cute,2,16,8192,64,128,2,False,True,True,1.1697881603240967,479.1407975720254,None,1.0179979082034982
+cute,2,16,8192,64,128,2,True,False,True,1.346020169880079,416.4077512879588,None,1.0179979082034982
+cute,2,16,8192,64,128,2,True,True,True,1.2245812245777674,457.70196445830425,None,1.0179979082034982
+torch,1,16,16384,64,None,None,None,None,True,2.010039511992007,557.6937456045679,None,None
+cute,1,16,16384,64,256,2,False,False,True,2.543915025119124,440.6540521940223,None,2.010039511992007
+cute,1,16,16384,64,256,2,False,True,True,2.7609508463314603,406.01464011772646,None,2.010039511992007
+cute,1,16,16384,64,128,6,False,False,True,2.379186584103492,471.16374636014604,None,2.010039511992007
+cute,1,16,16384,64,128,6,True,False,True,2.6877085651670183,417.0788748393709,None,2.010039511992007
+cute,1,16,16384,64,128,6,False,True,True,2.3100610077381134,485.2627097297354,None,2.010039511992007
+cute,1,16,16384,64,128,6,True,True,True,2.25267614856843,497.62433227181106,None,2.010039511992007
+cute,1,16,16384,64,128,2,False,False,True,2.4081685145696006,465.4933645523341,None,2.010039511992007
+cute,1,16,16384,64,128,2,False,True,True,2.310534200360698,485.1633289310336,None,2.010039511992007
+cute,1,16,16384,64,128,2,True,False,True,2.6886720021565753,416.92942216709974,None,2.010039511992007
+cute,1,16,16384,64,128,2,True,True,True,2.3616134120571997,474.66975692668916,None,2.010039511992007
+torch,32,8,512,128,None,None,None,None,True,0.07214805151885137,480.890085838764,None,None
+cute,32,8,512,128,128,2,False,False,True,0.08424387085101297,411.8434057874587,None,0.07214805151885137
+cute,32,8,512,128,128,2,False,True,True,0.08101267229139278,428.26982133369535,None,0.07214805151885137
+cute,32,8,512,128,None,None,None,None,None,None,None,"CUDA error: unspecified launch failure
+CUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+",None
+cute,32,8,512,128,128,2,True,True,True,0.09344145459207621,371.3050362867761,None,0.07214805151885137
+cute,32,8,512,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+cute,32,8,512,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+cute,32,8,512,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+cute,32,8,512,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+torch,16,8,1024,128,None,None,None,None,True,0.12002241332853629,578.1467265289677,None,None
+cute,16,8,1024,128,128,2,False,False,True,0.13739274804280183,505.0526055012949,None,0.12002241332853629
+cute,16,8,1024,128,128,2,False,True,True,0.12861132059457167,539.5369945289932,None,0.12002241332853629
+cute,16,8,1024,128,128,2,True,False,True,0.1449584906112473,478.6926594185715,None,0.12002241332853629
+cute,16,8,1024,128,128,2,True,True,True,0.15133966254853756,458.5087888229241,None,0.12002241332853629
+cute,16,8,1024,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+cute,16,8,1024,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+cute,16,8,1024,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+cute,16,8,1024,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+torch,8,8,2048,128,None,None,None,None,True,0.21802101212452693,636.5493371470658,None,None
+cute,8,8,2048,128,128,2,False,False,True,0.24313800021385154,570.7916106488304,None,0.21802101212452693
+cute,8,8,2048,128,128,2,False,True,True,0.2214132246314263,626.7969358335342,None,0.21802101212452693
+cute,8,8,2048,128,128,2,True,False,True,0.25269242566316685,549.2096978680003,None,0.21802101212452693
+cute,8,8,2048,128,128,2,True,True,True,0.27075084289872503,512.5787578948051,None,0.21802101212452693
+cute,8,8,2048,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+cute,8,8,2048,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+cute,8,8,2048,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+cute,8,8,2048,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+torch,4,8,4096,128,None,None,None,None,True,0.4185674083350327,663.1243999815476,None,None
+cute,4,8,4096,128,128,2,False,False,True,0.45202916294713563,614.0361822992837,None,0.4185674083350327
+cute,4,8,4096,128,128,2,False,True,True,0.41430985527794534,669.9388343484942,None,0.4185674083350327
+cute,4,8,4096,128,128,2,True,False,True,0.4667280995393101,594.697987496299,None,0.4185674083350327
+cute,4,8,4096,128,128,2,True,True,True,0.4840931277244519,573.3654241462187,None,0.4185674083350327
+cute,4,8,4096,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+cute,4,8,4096,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+cute,4,8,4096,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+cute,4,8,4096,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+torch,2,8,8192,128,None,None,None,None,True,0.8346721390019293,665.0809306655399,None,None
+cute,2,8,8192,128,128,2,False,False,True,0.883242670694987,628.5073643138137,None,0.8346721390019293
+cute,2,8,8192,128,128,2,False,True,True,0.8341376944021746,665.5070580473612,None,0.8346721390019293
+cute,2,8,8192,128,128,2,True,False,True,0.9066332204867218,612.2922814476002,None,0.8346721390019293
+cute,2,8,8192,128,128,2,True,True,True,0.905866482134523,612.810534395689,None,0.8346721390019293
+cute,2,8,8192,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+cute,2,8,8192,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+cute,2,8,8192,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+cute,2,8,8192,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+torch,1,8,16384,128,None,None,None,None,True,1.650747277697579,672.5736040979862,None,None
+cute,1,8,16384,128,128,2,False,False,True,1.7567589741486769,631.9871208023999,None,1.650747277697579
+cute,1,8,16384,128,128,2,False,True,True,1.6924618103287437,655.996513032306,None,1.650747277697579
+cute,1,8,16384,128,128,2,True,False,True,1.8504244151868319,599.9969719940716,None,1.650747277697579
+cute,1,8,16384,128,128,2,True,True,True,1.7569403098179743,631.9218927426316,None,1.650747277697579
+cute,1,8,16384,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+cute,1,8,16384,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+cute,1,8,16384,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+cute,1,8,16384,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+torch,32,16,512,128,None,None,None,None,True,0.13255674556150274,523.4781910348324,None,None
+cute,32,16,512,128,128,2,False,False,True,0.1522424154967632,455.7899659538396,None,0.13255674556150274
+cute,32,16,512,128,128,2,False,True,True,0.14730239964666822,471.07559376117416,None,0.13255674556150274
+cute,32,16,512,128,128,2,True,False,True,0.16892861517576072,410.76856815408695,None,0.13255674556150274
+cute,32,16,512,128,128,2,True,True,True,0.17342384463375055,400.12124931576847,None,0.13255674556150274
+cute,32,16,512,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+cute,32,16,512,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+cute,32,16,512,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+cute,32,16,512,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+torch,16,16,1024,128,None,None,None,None,True,0.23054154221914405,601.9788425813509,None,None
+cute,16,16,1024,128,128,2,False,False,True,0.25651604188115973,541.0232035947886,None,0.23054154221914405
+cute,16,16,1024,128,128,2,False,True,True,0.24040214394785694,577.2874088098878,None,0.23054154221914405
+cute,16,16,1024,128,128,2,True,False,True,0.27420444496803814,506.12283388832964,None,0.23054154221914405
+cute,16,16,1024,128,128,2,True,True,True,0.2871834733983973,483.2490153758775,None,0.23054154221914405
+cute,16,16,1024,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+cute,16,16,1024,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+cute,16,16,1024,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+cute,16,16,1024,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+torch,8,16,2048,128,None,None,None,None,True,0.43554926712309294,637.2694949927596,None,None
+cute,8,16,2048,128,128,2,False,False,True,0.466122126277489,595.471113376762,None,0.43554926712309294
+cute,8,16,2048,128,128,2,False,True,True,0.43198418377459735,642.5287589899998,None,0.43554926712309294
+cute,8,16,2048,128,128,2,True,False,True,0.4819965570033351,575.8594277719695,None,0.43554926712309294
+cute,8,16,2048,128,128,2,True,True,True,0.4969785256605399,558.4995068651886,None,0.43554926712309294
+cute,8,16,2048,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+cute,8,16,2048,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+cute,8,16,2048,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+cute,8,16,2048,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+torch,4,16,4096,128,None,None,None,None,True,0.8373941256936672,662.9190556455776,None,None
+cute,4,16,4096,128,128,2,False,False,True,0.8938348495354087,621.0593861903446,None,0.8373941256936672
+cute,4,16,4096,128,128,2,False,True,True,0.8505336776856454,652.6778863342932,None,0.8373941256936672
+cute,4,16,4096,128,128,2,True,False,True,0.9085296587697391,611.0142004166456,None,0.8373941256936672
+cute,4,16,4096,128,128,2,True,True,True,0.9072143476584862,611.9000701882333,None,0.8373941256936672
+cute,4,16,4096,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+cute,4,16,4096,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+cute,4,16,4096,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+cute,4,16,4096,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+torch,2,16,8192,128,None,None,None,None,True,1.6343218342202608,679.3331783061582,None,None
+cute,2,16,8192,128,128,2,False,False,True,1.757891053245181,631.5801220823146,None,1.6343218342202608
+cute,2,16,8192,128,128,2,False,True,True,1.6620670500255765,667.992934460084,None,1.6343218342202608
+cute,2,16,8192,128,128,2,True,False,True,1.8332753210532955,605.6095520765066,None,1.6343218342202608
+cute,2,16,8192,128,128,2,True,True,True,1.7588406128761096,631.239145769148,None,1.6343218342202608
+cute,2,16,8192,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+cute,2,16,8192,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+cute,2,16,8192,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+cute,2,16,8192,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+torch,1,16,16384,128,None,None,None,None,True,3.279363093837615,677.112606470637,None,None
+cute,1,16,16384,128,128,2,False,False,True,3.5908605223116665,618.3749210627996,None,3.279363093837615
+cute,1,16,16384,128,128,2,False,True,True,3.270529279708862,678.9415113353352,None,3.279363093837615
+cute,1,16,16384,128,128,2,True,False,True,3.7057266533374786,599.2072000324575,None,3.279363093837615
+cute,1,16,16384,128,128,2,True,True,True,3.5121725123861562,632.2292211447786,None,3.279363093837615
+cute,1,16,16384,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+cute,1,16,16384,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+cute,1,16,16384,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
+cute,1,16,16384,128,None,None,None,None,None,None,None,"DSLCudaRuntimeError: CUDA_ERROR_INVALID_VALUE (error code: 1) 
+[91m⚠️ Invalid parameter passed to CUDA operation.[0m
+
+[93mThis is likely a bug - please report it with:[0m 
+
+[0m
+[1mError Code:[0m 1
+
+[94m🔍 Additional Context:[0m 
+- [1mError name: CUDA_ERROR_INVALID_VALUE
+- Error code: 1
+- CUDA_TOOLKIT_PATH: not set
+- Target SM ARCH: not set[0m
+
+[94m📊 GPU Information:[0m
+[1m- CUDA devices available: 1 (current: <CUdevice 0>)
+- Architecture: [94mHopper[0m ([92msm_90a[0m)
+- Compatible SM archs: [92msm_90a[0m
+- Total Memory: [94m79.19 GB[0m
+
+[1mCompatibility Check:[0m
+[91m❌ Error: Target SM ARCH unknown is not compatible
+💡 Please use one of SM ARCHs: [92msm_90a[0m
+
+[92m💡 Suggestions:[0m
+ [92m1. Your GPU model[0m
+ [92m2. SM ARCH setting[0m
+ [92m3. Steps to reproduce[0m",None
