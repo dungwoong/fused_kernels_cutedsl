@@ -38,3 +38,8 @@ Memory Throughput
 
 - I have +95% branch instructions, might be difficult to avoid unless if
 - I can look at source counters to try to fine-tune things
+
+## Profiling
+- I generally get higher speedup on dim 128 vs 64 but I guess I haven't tested different configs
+- For 64, they use iwo and pingpong, for 128 they don't use iwo but pingpong is still good
+- n_dim 256 is the worst performing for 64, and not considered for 128. IWO=true is always the worst for 128, even worse than no iwo and no pingpong. I think maybe there's just too much register pressure
