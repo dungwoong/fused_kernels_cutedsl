@@ -23,6 +23,8 @@ class PipelineTmaAsync(PipelineTmaAsyncOg):
         state: PipelineState,
         try_acquire_token: Optional[Boolean] = None,
         extra_tx_count: int = 0,
+        loc=None,
+        ip=None,
     ):
         """
         TMA producer commit conditionally waits on buffer empty and sets the transaction barrier for leader threadblocks.

@@ -758,8 +758,8 @@ if __name__ == "__main__":
     
     # this actually beats cudnn on 4, 16, 8192, 128 
     # fa = FlashSM90(qk_mn=(128, 128), num_stages=2, cluster_size_m=1, intra_wg_overlap=False, pingpong=True)
-    compiled_fa = cute.compile(fa, q_cute, k_cute, v_cute, o_cute, rt, current_stream, options="--keep-cubin")
-    dump_kernel_attributes(compiled_fa)
+    compiled_fa = cute.compile(fa, q_cute, k_cute, v_cute, o_cute, rt, current_stream, options="--keep-ptx --ptxas-options='-v'") # --ptxas-options='-v' does nothing
+    # dump_kernel_attributes(compiled_fa)
     compiled_fa(q_cute, k_cute, v_cute, o_cute, rt, current_stream)
 
     ref = F.scaled_dot_product_attention(q, k, v)

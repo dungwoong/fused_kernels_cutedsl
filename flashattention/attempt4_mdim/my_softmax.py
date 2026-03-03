@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import Optional, Tuple, override
+from typing import Optional, Tuple
 from functools import lru_cache
 import operator
 import math
