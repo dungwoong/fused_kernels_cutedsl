@@ -13,3 +13,8 @@
 
 
 - https://github.com/NVIDIA/cutlass/issues/2981
+
+
+Barrier update
+- the epilogue initial barrier is not required. stmatrix is synced within the warp anyways. That second barrier makes sure all warps have finished.
+- the first barrier is hacked in because we lumped q and k together. Think about it, the producer will drop off k[n] early and then check the next index that previously corresponded to k[n-stages]. If it's good, then it's going to load in the next q. So there's no ordering that q must be loaded in AFTER k[n], it actually corresponds to k[n-stages] and that's why we get a race condition. So next time just put in a barrier lol

@@ -40,6 +40,7 @@ class NamedBarrierFwd(enum.IntEnum):
     WarpSchedulerWG1 = enum.auto()
     WarpSchedulerWG2 = enum.auto()
     WarpSchedulerWG3 = enum.auto()
+    Tmp1 = enum.auto()
 
 @cute.jit
 def print0(x):
@@ -325,9 +326,9 @@ class FlashSM90:
                         load_V(n_block, v_producer_state.index, tma_bar_ptr=pipeline_v.producer_get_barrier(v_producer_state))
                         k_producer_state.advance()
                         v_producer_state.advance()
-                cute.arch.barrier(barrier_id=int(NamedBarrierFwd.Epilogue), number_of_threads=self.num_epilogue_threads + cute.arch.WARP_SIZE)
                 tile_scheduler.advance_to_next_work()
                 work_tile = tile_scheduler.get_current_work()
+                cute.arch.barrier(barrier_id=int(NamedBarrierFwd.Epilogue), number_of_threads=self.num_epilogue_threads + cute.arch.WARP_SIZE)
             pipeline_k.producer_tail(k_producer_state)
             pipeline_v.producer_tail(v_producer_state)
     
@@ -753,7 +754,7 @@ if __name__ == "__main__":
 
     # good with dim=64
     # FlashSM90(qk_mn=(128, 128), num_stages=5, cluster_size_m=1, intra_wg_overlap=True, pingpong=True)
-    fa = FlashSM90(qk_mn=(128, 128), num_stages=3, cluster_size_m=1, intra_wg_overlap=True, pingpong=True, mma_m_size=64)
+    fa = FlashSM90(qk_mn=(128, 128), num_stages=4, cluster_size_m=1, intra_wg_overlap=True, pingpong=True, mma_m_size=64)
     # fa = FlashSM90(qk_mn=(256, 64), num_stages=2, cluster_size_m=1, intra_wg_overlap=False, pingpong=False, mma_m_size=128)
     
     # this actually beats cudnn on 4, 16, 8192, 128 
