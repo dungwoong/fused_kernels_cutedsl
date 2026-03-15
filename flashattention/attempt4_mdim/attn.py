@@ -136,8 +136,8 @@ class FlashSM90:
         # self.num_producer_regs = (56, 24, 32)[int(self.num_mma_warpgroups - 1)]
         
         # allows you to debug print
-        self.num_mma_regs = 240
-        self.num_producer_regs = 24
+        self.num_mma_regs = 232
+        self.num_producer_regs = 40
 
         # Shared Storage
         self._get_smem_layouts()

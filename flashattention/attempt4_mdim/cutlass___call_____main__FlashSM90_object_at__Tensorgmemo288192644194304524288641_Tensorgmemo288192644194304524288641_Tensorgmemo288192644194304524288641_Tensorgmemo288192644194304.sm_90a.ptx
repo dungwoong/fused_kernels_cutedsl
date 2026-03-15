@@ -110,7 +110,7 @@ $L__BB0_4:
 	bar.sync 	0;
 	setp.gt.s32 	%p4, %r2, 3;
 	@%p4 bra 	$L__BB0_34;
-	setmaxnreg.dec.sync.aligned.u32 24;
+	setmaxnreg.dec.sync.aligned.u32 40;
 	and.b32  	%r615, %r2, 3;
 	setp.ne.s32 	%p29, %r615, 0;
 	@%p29 bra 	$L__BB0_60;
@@ -414,7 +414,7 @@ $L__BB0_34:
 	ld.param.u32 	%r753, [kernel_cutlass_kernel___main__FlashSM90_object_at__tensor0000o8192648211101213_tensor0000o8192648211101213_tensor0000o8192648211101213_tensor0000o8192648211101213_CopyAtom_ThrID10_TVLayou_0_param_10];
 	ld.param.u32 	%r749, [kernel_cutlass_kernel___main__FlashSM90_object_at__tensor0000o8192648211101213_tensor0000o8192648211101213_tensor0000o8192648211101213_tensor0000o8192648211101213_CopyAtom_ThrID10_TVLayou_0_param_9];
 	ld.param.u32 	%r745, [kernel_cutlass_kernel___main__FlashSM90_object_at__tensor0000o8192648211101213_tensor0000o8192648211101213_tensor0000o8192648211101213_tensor0000o8192648211101213_CopyAtom_ThrID10_TVLayou_0_param_8];
-	setmaxnreg.inc.sync.aligned.u32 240;
+	setmaxnreg.inc.sync.aligned.u32 232;
 	mov.u32 	%r260, %ctaid.x;
 	mov.u32 	%r261, %ctaid.y;
 	add.s32 	%r783, %r261, %r260;
