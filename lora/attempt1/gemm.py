@@ -5,6 +5,7 @@ import cuda.bindings.driver as cuda
 
 import torch
 from triton import runtime
+from triton.testing import do_bench
 import functools
 import statistics
 
@@ -23,7 +24,7 @@ from tile_scheduler import SimpleTileSchedulerArguments, SimpleTileScheduler, Ra
 from cute_dsl_utils import ParamsBase
 from functools import partial
 from my_utils import tma_get_copy_fn, make_smem_layout_epi
-from runtime import shared
+from my_runtime import shared
 
 THREADS_PER_WG = 128
 
@@ -220,20 +221,9 @@ class GemmSM90:
 
                     # NOTE this part ignores the L dimension, no batched GEMM for now
                     gA_mk = cute.local_tile(mA, cute.select(self.cta_tile_shape_mnk, [0, 2]), (tile_coord_mnkl[0], None))
-                    gB_nk = cute.local_tile(mB, cute.select(self.cta_tile_shape_mnk, [1, 2]), (tile_coord_mnkl[1], None))
                     k_iters = cute.size(gA_mk, mode=[2]) # M, K, restK
-
                     
-                    copy_a, _, _ = tma_get_copy_fn(tma_atom_a, 
-                                                   block_in_cluster_coord_mnk[1], # Where is your cluster in the multicast
-                                                   cute.make_layout(cute.slice_(cluster_layout_mnk, (0, None, 0)).shape), 
-                                                   gA_mk, sA, mcast_mask=a_mcast_mask)
-                    copy_b, _, _ = tma_get_copy_fn(tma_atom_b,
-                                                   block_in_cluster_coord_mnk[0],
-                                                   cute.make_layout(cute.slice_(cluster_layout_mnk, (None, 0, 0)).shape),
-                                                   gB_nk, sB, mcast_mask=b_mcast_mask)
-                    
-                    ab_producer_state = self.produce_mainloop(k_iters, copy_a, copy_b, ab_pipeline, ab_producer_state, tma_atom_a, mA, sA, tile_coord_mnkl, block_in_cluster_coord_mnk, cluster_layout_mnk, a_mcast_mask) # TODO
+                    ab_producer_state = self.produce_mainloop(k_iters, ab_pipeline, ab_producer_state, tma_atom_a, tma_atom_b, mA, sA, mB, sB, tile_coord_mnkl, block_in_cluster_coord_mnk, cluster_layout_mnk, a_mcast_mask, b_mcast_mask) # TODO
                     tile_scheduler.fetch_next_work()
                     tile_scheduler.advance_to_next_work()
                     work_tile = tile_scheduler.get_current_work()
@@ -374,16 +364,20 @@ class GemmSM90:
             c_pipeline.producer_tail() # wait_group(0)
 
     @cute.jit
-    def produce_mainloop(self, k_iters: Int32, copy_a: Callable, copy_b: Callable, pipe: pipeline.PipelineAsync, state: pipeline.PipelineState, tma_atom_a: cute.TiledCopy, mA: cute.Tensor, sA: cute.Tensor, tile_coord_mnkl, block_in_cluster_coord_mnk, cluster_layout_mnk, a_mcast_mask):
+    def produce_mainloop(
+        self, k_iters: Int32, pipe: pipeline.PipelineAsync, state: pipeline.PipelineState, 
+        tma_atom_a: cute.TiledCopy, tma_atom_b: cute.TiledCopy, 
+        mA: cute.Tensor, sA: cute.Tensor, mB: cute.Tensor, sB: cute.Tensor, 
+        tile_coord_mnkl: cute.Coord, block_in_cluster_coord_mnk: cute.Coord, cluster_layout_mnk: tuple, a_mcast_mask, b_mcast_mask
+        ):
         peek_ab_empty_status = Boolean(True)
         if 0 < k_iters:
             peek_ab_empty_status = pipe.producer_try_acquire(state)
 
         for k_tile in cutlass.range(k_iters, unroll=1, unroll_full=False):
             pipe.producer_acquire(state, peek_ab_empty_status) # wait empty arrive full
-            mbar = pipe.producer_get_barrier(state)
             shared.tma_copy(tma_atom_a, mA, sA, self.cta_tile_shape_mnk[0], self.cta_tile_shape_mnk[2], tile_coord_mnkl[0], k_tile, pipe, state, block_in_cluster_coord_mnk[1], cute.make_layout(cute.slice_(cluster_layout_mnk, (0, None, 0)).shape), a_mcast_mask)
-            copy_b(k_tile, state.index, tma_bar_ptr=mbar)
+            shared.tma_copy(tma_atom_b, mB, sB, self.cta_tile_shape_mnk[1], self.cta_tile_shape_mnk[2], tile_coord_mnkl[1], k_tile, pipe, state, block_in_cluster_coord_mnk[0], cute.make_layout(cute.slice_(cluster_layout_mnk, (None, 0, 0)).shape), b_mcast_mask)
             pipe.producer_commit(state)
             state.advance()
 
@@ -681,8 +675,8 @@ if __name__ == "__main__":
         return a @ b.t()
 
     if IS_SPEED:
-        my_ms = profile_ms(lambda: compiled_gemm(a_cute, b_cute, c_cute, current_stream))
-        other_ms = profile_ms(torch_gemm)
+        my_ms = do_bench(lambda: compiled_gemm(a_cute, b_cute, c_cute, current_stream))
+        other_ms = do_bench(torch_gemm)
         print(f'{my_ms=}, {other_ms=}')
         my_flops, other_flops = get_tflops(my_ms), get_tflops(other_ms)
         print(f'{my_flops=}, {other_flops=}')
