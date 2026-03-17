@@ -255,7 +255,7 @@ class GemmSM90:
                 # You have to return this, it doesn't let you modify a var inside a diff scope
                 # SSA -- modifying a value means reassigning it, so you can't go into this fn scope and only modify the value there
                 # you have to return it
-                ab_consumer_state, tiled_mma = self.consume_mainloop(k_iters, tiled_mma, accumulators, ab_pipeline, ab_consumer_state, tCrA, tCrB, tidx)
+                ab_consumer_state, tiled_mma = self.consume_mainloop(k_iters, tiled_mma, accumulators, ab_pipeline, ab_consumer_state, tCrA, tCrB, tidx, sA, sB)
 
                 # Epilogue ##################################################
                 self.epilogue(tiled_mma, epi_mC, epi_copy, sD, accumulators, tile_coord_mnk, tidx, warp_idx)
@@ -402,20 +402,6 @@ class GemmSM90:
         accumulate_O = False
         for k_tile in cutlass.range(num_prologue_mma):
             pipe.consumer_wait(read_state, peek_ab_full_status)
-            # cute.nvgpu.warpgroup.fence()
-            # for k_block_idx in cutlass.range(num_k_blocks, unroll_full=True):
-            #     k_block_coord = (None, None, k_block_idx, read_state.index)
-            #     tCrA_1phase = tCrA[k_block_coord]
-            #     tCrB_1phase = tCrB[k_block_coord]
-            #     cute.gemm(
-            #         tiled_mma,
-            #         accumulators,
-            #         tCrA_1phase,
-            #         tCrB_1phase,
-            #         accumulators
-            #     )
-            #     tiled_mma.set(cute.nvgpu.warpgroup.Field.ACCUMULATE, True)
-            # cute.nvgpu.warpgroup.commit_group()
             mma.accumulating_gemm_ss(tidx, tiled_mma, sA, sB, accumulators, read_state, read_state, accumulate_O, -1)
             accumulate_O = True
             read_state.advance()
@@ -425,20 +411,6 @@ class GemmSM90:
 
         for k_tile in cutlass.range(num_prologue_mma, k_iters, unroll=1, unroll_full=False):
             pipe.consumer_wait(read_state, peek_ab_full_status)
-            # cute.nvgpu.warpgroup.fence()
-            # for k_block_idx in cutlass.range(num_k_blocks, unroll_full=True):
-            #     k_block_coord = (None, None, k_block_idx, read_state.index)
-            #     tCrA_1phase = tCrA[k_block_coord]
-            #     tCrB_1phase = tCrB[k_block_coord]
-            #     cute.gemm(
-            #         tiled_mma,
-            #         accumulators,
-            #         tCrA_1phase,
-            #         tCrB_1phase,
-            #         accumulators
-            #     )
-            #     tiled_mma.set(cute.nvgpu.warpgroup.Field.ACCUMULATE, True)
-            # cute.nvgpu.warpgroup.commit_group()
             mma.accumulating_gemm_ss(tidx, tiled_mma, sA, sB, accumulators, read_state, read_state, accumulate_O, -1)
             accumulate_O = True
             cute.nvgpu.warpgroup.wait_group(self.gemm_n_prologue)
@@ -564,35 +536,18 @@ class GemmSM90:
         self.cta_tile_shape_mnk = (self.cta_tile_shape_mnk[0], self.cta_tile_shape_mnk[1], mma_k * mma_inst_tile_k)
     
     def populate_smem_layouts(self):
-        self.a_smem_layout_staged, self.b_smem_layout_staged, self.epi_smem_layout_staged = self._get_smem_layouts(self.cta_tile_shape_mnk, self.a_dtype, self.a_layout, 
-                                                                                                                   self.b_dtype, self.b_layout, self.ab_stage,
-                                                                                                                   self.c_dtype, self.c_layout, self.epi_tile_mn, self.epi_stage)
+        self.a_smem_layout_staged = sm90_utils.make_smem_layout_a(
+            self.a_layout, self.cta_tile_shape_mnk, self.a_dtype, self.ab_stage
+        )
+
+        self.b_smem_layout_staged = sm90_utils.make_smem_layout_b(
+            self.b_layout, self.cta_tile_shape_mnk, self.b_dtype, self.ab_stage
+        )
+
+        self.epi_smem_layout_staged = make_smem_layout_epi(self.c_dtype, self.c_layout, self.epi_tile_mn, self.epi_stage)
+
         if not self.reuse_ab:
             self.epi_smem_size = cute.cosize(self.epi_smem_layout_staged)
-
-    @staticmethod
-    def _get_smem_layouts(
-        tile_shape_mnk: tuple[int, int, int],
-        a_dtype: Type[cutlass.Numeric],
-        a_layout: utils.LayoutEnum,
-        b_dtype: Type[cutlass.Numeric],
-        b_layout: utils.LayoutEnum,
-        ab_stage: int,
-        d_dtype: Type[cutlass.Numeric], # for epilogue. Use D to refer to the output matrix
-        d_layout: utils.LayoutEnum,
-        epi_tile: Tuple[int, int],
-        epi_stage: int,
-    ):
-        a_smem_layout = sm90_utils.make_smem_layout_a(
-            a_layout, tile_shape_mnk, a_dtype, ab_stage
-        )
-
-        b_smem_layout = sm90_utils.make_smem_layout_b(
-            b_layout, tile_shape_mnk, b_dtype, ab_stage
-        )
-
-        epi_smem_layout_staged = make_smem_layout_epi(d_dtype, d_layout, epi_tile, epi_stage)
-        return a_smem_layout, b_smem_layout, epi_smem_layout_staged
     
     @cute.jit
     def populate_shared_storage(self):
