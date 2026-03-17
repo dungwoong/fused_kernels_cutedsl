@@ -532,59 +532,103 @@ class FlashSM90:
         gO = cute.local_tile(mO_curr, (self.tile_m, self.hdimv), (m_block, 0))
         
         thr_copy_r2s = tiled_copy_r2s.get_slice(tidx)
-        tRS_sD = thr_copy_r2s.partition_D(sO) # m, n, stages
-        tRS_rAcc = tiled_copy_r2s.retile(acc_o) # TODO ???
+        tRS_sD = thr_copy_r2s.partition_D(sO) # e.g. ((2, 2, 2), 1), 1, 2
+        tRS_rAcc = tiled_copy_r2s.retile(acc_o) # e.g. (8, 4), 1, 1 so 8 is the 16x16 then 4 stages so it's reorganized like that
 
         # make registers to represent one stage of the epilogue
         rD_shape = cute.shape(thr_copy_r2s.partition_S(sO))
         tRS_rD_layout = cute.make_layout(rD_shape[:3]) # just one stage
-        tRS_rD = cute.make_rmem_tensor_like(tRS_rD_layout, self.acc_dtype)
+        tRS_rD = cute.make_rmem_tensor_like(tRS_rD_layout, self.acc_dtype) # should be 16x32
         size_tRS_rD = cute.size(tRS_rD)
 
+        s_epi_tma = cute.group_modes(sO, 0, 2)
+        tCgC_for_tma = cute.zipped_divide(gO, (self.tile_m, self.epi_n)) # this just works (128,32),(1,2)
+        eTs, eTg = cute.nvgpu.cpasync.tma_partition(
+            tma_atom_O,
+            0,
+            cute.make_layout(1),
+            s_epi_tma,
+            tCgC_for_tma,
+        )
+
+        epi_tile_num = cute.size(tCgC_for_tma, mode=[1]) # number of global tiles
+
+        # the layout of the epilogue tiles in GMEM e.g. (1, 2):(2, 1) is just two column tiles
+        epi_tile_shape = tCgC_for_tma.shape[1]
+        epi_layout = cute.make_layout(epi_tile_shape, stride=(epi_tile_shape[1], 1))
+
+        for epi_idx in cutlass.range_constexpr(epi_tile_num):
+            for epi_v in cutlass.range_constexpr(size_tRS_rD):
+                tRs_rD[epi_v] = tRs_rAcc[epi_idx * size_tRS_rD + epi_v]
+            
+            tRS_rD_out = cute.make_rmem_tensor_like(tRS_rD_layout, self.dtype)
+            acc_vec = tRS_rD.load()
+            tRS_rD_out.store(acc_vec.to(self.dtype))
+
+            epi_buffer = epi_idx % cute.size(tRS_sD, mode=[3]) # num stages
+            cute.copy(
+                tiled_copy_r2s, tRS_rD_out, tRS_sD[(None, None, None, epi_buffer)]
+            )
+            cute.arch.fence_proxy(...)
+            # barrier
+
+
+
+        print(tRS_rAcc)
         print(tRS_rD)
-        print(gO)
+        print(tCgC_for_tma)
+        print(s_epi_tma)
+        print(eTs)
+        print(eTg)
+        print(epi_layout)
+        # tensor<ptr<f32, rmem, align<32>> o ((8,4),1,1):((1,8),0,0)>
+        # tensor<ptr<f32, rmem, align<32>> o (((2,2,2),1),1,2):(((1,2,4),0),0,8)>
+        # tensor<(0,?{div=128},?,?) o ((128,32),(1,2)):((1@1,1@0),(0,32@0))>
+        # tensor<ptr<bf16, smem, align<1024>, S<2,4,3>> o (((8,16),(32,1)),(1,2)):(((32,256),(1,0)),(0,4096))>
+        # tensor<ptr<bf16, smem, align<1024>, S<2,4,3>> o ((4096,1),(1,2)):((1,0),(0,4096))>
+        # tensor<(0,?{div=128},?,?) o (((32,128),1),(1,2)):(((1@0,1@1),0),(0,32@0))>
 
     
-    @cute.jit
-    def epilogue(self, acc_o: cute.Tensor, sO: cute.Tensor, mO: cute.Tensor, tma_atom_O: cute.CopyAtom, tiled_mma: cute.TiledMma, tidx: Int32, m_block: int, head_idx: int, batch_idx: int):
-        # convert down IN REGISTERS
-        rO = cute.make_fragment_like(acc_o, self.dtype)
-        rO.store(acc_o.load().to(self.dtype))
+    # @cute.jit
+    # def epilogue(self, acc_o: cute.Tensor, sO: cute.Tensor, mO: cute.Tensor, tma_atom_O: cute.CopyAtom, tiled_mma: cute.TiledMma, tidx: Int32, m_block: int, head_idx: int, batch_idx: int):
+    #     # convert down IN REGISTERS
+    #     rO = cute.make_fragment_like(acc_o, self.dtype)
+    #     rO.store(acc_o.load().to(self.dtype))
 
-        # Make sure no SMEM dependencies
-        cute.arch.barrier(barrier_id=int(NamedBarrierFwd.Epilogue), number_of_threads=self.num_epilogue_threads + cute.arch.WARP_SIZE)
-        # Copy R2S
-        smem_copy_atom_O = my_utils.get_smem_store_atom(90, self.dtype)
-        smem_thr_copy_O = cute.make_tiled_copy_C(smem_copy_atom_O, tiled_mma).get_slice(tidx)
-        taco = smem_thr_copy_O.retile(rO)
-        taco_s = smem_thr_copy_O.partition_D(sO)
-        cute.copy(smem_copy_atom_O, taco, taco_s)
+    #     # Make sure no SMEM dependencies
+    #     cute.arch.barrier(barrier_id=int(NamedBarrierFwd.Epilogue), number_of_threads=self.num_epilogue_threads + cute.arch.WARP_SIZE)
+    #     # Copy R2S
+    #     smem_copy_atom_O = my_utils.get_smem_store_atom(90, self.dtype)
+    #     smem_thr_copy_O = cute.make_tiled_copy_C(smem_copy_atom_O, tiled_mma).get_slice(tidx)
+    #     taco = smem_thr_copy_O.retile(rO)
+    #     taco_s = smem_thr_copy_O.partition_D(sO)
+    #     cute.copy(smem_copy_atom_O, taco, taco_s)
 
-        cute.arch.fence_proxy(cute.arch.ProxyKind.async_shared, space=cute.arch.SharedSpace.shared_cta)
-        cute.arch.barrier_arrive(
-            barrier_id=int(NamedBarrierFwd.Epilogue),
-            number_of_threads=self.num_epilogue_threads + cute.arch.WARP_SIZE
-        )
+    #     cute.arch.fence_proxy(cute.arch.ProxyKind.async_shared, space=cute.arch.SharedSpace.shared_cta)
+    #     cute.arch.barrier_arrive(
+    #         barrier_id=int(NamedBarrierFwd.Epilogue),
+    #         number_of_threads=self.num_epilogue_threads + cute.arch.WARP_SIZE
+    #     )
 
-        mO_curr = mO[None, None, head_idx, batch_idx]
-        gO = cute.local_tile(mO_curr, (self.tile_m, self.hdimv), (m_block, 0))
+    #     mO_curr = mO[None, None, head_idx, batch_idx]
+    #     gO = cute.local_tile(mO_curr, (self.tile_m, self.hdimv), (m_block, 0))
 
-        store_O, _, _ = my_utils.tma_get_copy_fn(
-            tma_atom_O, 0, cute.make_layout(1), sO, gO, single_stage=True
-        )
+    #     store_O, _, _ = my_utils.tma_get_copy_fn(
+    #         tma_atom_O, 0, cute.make_layout(1), sO, gO, single_stage=True
+    #     )
 
-        # extra +WARP_SIZE because warp 4 will arrive again before doing the tma store.
-        # Barrier ensures everything is in SMEM
-        warp_idx = cute.arch.make_warp_uniform(cute.arch.warp_idx())
-        if warp_idx == 4:
-            cute.arch.barrier(
-                barrier_id=int(NamedBarrierFwd.Epilogue),
-                number_of_threads=self.num_epilogue_threads + cute.arch.WARP_SIZE
-            )
-            # TMA store
-            store_O()
-            cute.arch.cp_async_bulk_commit_group()
-            cute.arch.cp_async_bulk_wait_group(0, read=True) # .read: no need to wait for writes to finish, just finish reading from SMEM
+    #     # extra +WARP_SIZE because warp 4 will arrive again before doing the tma store.
+    #     # Barrier ensures everything is in SMEM
+    #     warp_idx = cute.arch.make_warp_uniform(cute.arch.warp_idx())
+    #     if warp_idx == 4:
+    #         cute.arch.barrier(
+    #             barrier_id=int(NamedBarrierFwd.Epilogue),
+    #             number_of_threads=self.num_epilogue_threads + cute.arch.WARP_SIZE
+    #         )
+    #         # TMA store
+    #         store_O()
+    #         cute.arch.cp_async_bulk_commit_group()
+    #         cute.arch.cp_async_bulk_wait_group(0, read=True) # .read: no need to wait for writes to finish, just finish reading from SMEM
         
     def _get_tiled_mma(self):
         tiled_mma_qk = sm90_utils.make_trivial_tiled_mma(
@@ -702,7 +746,7 @@ class FlashSM90:
             gso,
             mO,
             cute.select(self.sO_layout, mode=[0, 1]),
-            (self.tile_m, self.hdimv)
+            (self.tile_m, self.epi_n)
         )
         return tma_atom_q, tma_tensor_q, tma_atom_k, tma_tensor_k, tma_atom_v, tma_tensor_v, tma_atom_o, tma_tensor_o
 
