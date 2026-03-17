@@ -24,7 +24,7 @@ from tile_scheduler import SimpleTileSchedulerArguments, SimpleTileScheduler, Ra
 from cute_dsl_utils import ParamsBase
 from functools import partial
 from my_utils import tma_get_copy_fn, make_smem_layout_epi
-from my_runtime import shared
+from my_runtime import shared, mma
 
 THREADS_PER_WG = 128
 
@@ -255,7 +255,7 @@ class GemmSM90:
                 # You have to return this, it doesn't let you modify a var inside a diff scope
                 # SSA -- modifying a value means reassigning it, so you can't go into this fn scope and only modify the value there
                 # you have to return it
-                ab_consumer_state, tiled_mma = self.consume_mainloop(k_iters, tiled_mma, accumulators, ab_pipeline, ab_consumer_state, tCrA, tCrB)
+                ab_consumer_state, tiled_mma = self.consume_mainloop(k_iters, tiled_mma, accumulators, ab_pipeline, ab_consumer_state, tCrA, tCrB, tidx)
 
                 # Epilogue ##################################################
                 self.epilogue(tiled_mma, epi_mC, epi_copy, sD, accumulators, tile_coord_mnk, tidx, warp_idx)
@@ -389,7 +389,7 @@ class GemmSM90:
         return state
 
     @cute.jit
-    def consume_mainloop(self, k_iters: Int32, tiled_mma: cute.TiledMma, accumulators: cute.Tensor, pipe: pipeline.PipelineAsync, read_state: pipeline.PipelineState, tCrA: cute.Tensor, tCrB: cute.Tensor):
+    def consume_mainloop(self, k_iters: Int32, tiled_mma: cute.TiledMma, accumulators: cute.Tensor, pipe: pipeline.PipelineAsync, read_state: pipeline.PipelineState, tCrA: cute.Tensor, tCrB: cute.Tensor, tidx: Int32, sA: cute.Tensor, sB: cute.Tensor):
         release_state = read_state.clone() # NOTE: read is where we are reading from, release is when we are finished with the tile
         num_prologue_mma = min(self.gemm_n_prologue, k_iters)
         num_k_blocks = cute.size(tCrA, mode=[2])
@@ -399,22 +399,25 @@ class GemmSM90:
         if 0 < k_iters:
             peek_ab_full_status = pipe.consumer_try_wait(read_state)
         
+        accumulate_O = False
         for k_tile in cutlass.range(num_prologue_mma):
             pipe.consumer_wait(read_state, peek_ab_full_status)
-            cute.nvgpu.warpgroup.fence()
-            for k_block_idx in cutlass.range(num_k_blocks, unroll_full=True):
-                k_block_coord = (None, None, k_block_idx, read_state.index)
-                tCrA_1phase = tCrA[k_block_coord]
-                tCrB_1phase = tCrB[k_block_coord]
-                cute.gemm(
-                    tiled_mma,
-                    accumulators,
-                    tCrA_1phase,
-                    tCrB_1phase,
-                    accumulators
-                )
-                tiled_mma.set(cute.nvgpu.warpgroup.Field.ACCUMULATE, True)
-            cute.nvgpu.warpgroup.commit_group()
+            # cute.nvgpu.warpgroup.fence()
+            # for k_block_idx in cutlass.range(num_k_blocks, unroll_full=True):
+            #     k_block_coord = (None, None, k_block_idx, read_state.index)
+            #     tCrA_1phase = tCrA[k_block_coord]
+            #     tCrB_1phase = tCrB[k_block_coord]
+            #     cute.gemm(
+            #         tiled_mma,
+            #         accumulators,
+            #         tCrA_1phase,
+            #         tCrB_1phase,
+            #         accumulators
+            #     )
+            #     tiled_mma.set(cute.nvgpu.warpgroup.Field.ACCUMULATE, True)
+            # cute.nvgpu.warpgroup.commit_group()
+            mma.accumulating_gemm_ss(tidx, tiled_mma, sA, sB, accumulators, read_state, read_state, accumulate_O, -1)
+            accumulate_O = True
             read_state.advance()
             peek_ab_full_status = Boolean(True)
             if k_tile + 1 < k_iters:
@@ -422,20 +425,22 @@ class GemmSM90:
 
         for k_tile in cutlass.range(num_prologue_mma, k_iters, unroll=1, unroll_full=False):
             pipe.consumer_wait(read_state, peek_ab_full_status)
-            cute.nvgpu.warpgroup.fence()
-            for k_block_idx in cutlass.range(num_k_blocks, unroll_full=True):
-                k_block_coord = (None, None, k_block_idx, read_state.index)
-                tCrA_1phase = tCrA[k_block_coord]
-                tCrB_1phase = tCrB[k_block_coord]
-                cute.gemm(
-                    tiled_mma,
-                    accumulators,
-                    tCrA_1phase,
-                    tCrB_1phase,
-                    accumulators
-                )
-                tiled_mma.set(cute.nvgpu.warpgroup.Field.ACCUMULATE, True)
-            cute.nvgpu.warpgroup.commit_group()
+            # cute.nvgpu.warpgroup.fence()
+            # for k_block_idx in cutlass.range(num_k_blocks, unroll_full=True):
+            #     k_block_coord = (None, None, k_block_idx, read_state.index)
+            #     tCrA_1phase = tCrA[k_block_coord]
+            #     tCrB_1phase = tCrB[k_block_coord]
+            #     cute.gemm(
+            #         tiled_mma,
+            #         accumulators,
+            #         tCrA_1phase,
+            #         tCrB_1phase,
+            #         accumulators
+            #     )
+            #     tiled_mma.set(cute.nvgpu.warpgroup.Field.ACCUMULATE, True)
+            # cute.nvgpu.warpgroup.commit_group()
+            mma.accumulating_gemm_ss(tidx, tiled_mma, sA, sB, accumulators, read_state, read_state, accumulate_O, -1)
+            accumulate_O = True
             cute.nvgpu.warpgroup.wait_group(self.gemm_n_prologue)
             pipe.consumer_release(release_state)
             read_state.advance()
