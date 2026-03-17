@@ -6,7 +6,7 @@ from cutlass.cute.nvgpu import warpgroup
 import cutlass.utils.hopper_helpers as sm90_utils
 from cutlass.cutlass_dsl import Numeric, dsl_user_op, T
 from cutlass.utils import LayoutEnum
-from cutlass._mlir.dialects import nvvm, llvm
+from cutlass._mlir.dialects import nvvm, llvm, arith
 
 def select(a: cute.Tensor, mode: list[int]) -> cute.Tensor:
     return cute.make_tensor(a.iterator, cute.select(a.layout, mode))
@@ -212,6 +212,30 @@ def fmax(a: float | cutlass.Float32, b: float | cutlass.Float32, c: float | cutl
             cutlass.Float32(a).ir_value(loc=loc, ip=ip),
             cutlass.Float32(b).ir_value(loc=loc, ip=ip),
             c=cutlass.Float32(c).ir_value(loc=loc, ip=ip) if c is not None else None,
+            loc=loc,
+            ip=ip,
+        )
+    )
+
+
+def fadd(a: float | cutlass.Float32, b: float | cutlass.Float32, *, fastmath=True, loc=None, ip=None) -> cutlass.Float32:
+    return cutlass.Float32(
+        arith.addf(
+            cutlass.Float32(a).ir_value(loc=loc, ip=ip),
+            cutlass.Float32(b).ir_value(loc=loc, ip=ip),
+            fastmath=fastmath,
+            loc=loc,
+            ip=ip,
+        )
+    )
+
+
+def mulf(a: float | cutlass.Float32, b: float | cutlass.Float32, *, fastmath=True, loc=None, ip=None) -> cutlass.Float32:
+    return cutlass.Float32(
+        arith.mulf(
+            cutlass.Float32(a).ir_value(loc=loc, ip=ip),
+            cutlass.Float32(b).ir_value(loc=loc, ip=ip),
+            fastmath=fastmath,
             loc=loc,
             ip=ip,
         )
