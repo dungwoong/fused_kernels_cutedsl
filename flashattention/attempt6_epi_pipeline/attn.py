@@ -79,6 +79,8 @@ class FlashSM90:
         intra_wg_overlap: bool=False,
         pingpong: bool=False,
         mma_m_size: int=64,
+        epi_n: int=32,
+        epi_stages: int=2,
         ):
         self.acc_dtype = cutlass.Float32
         self.num_stages = num_stages
@@ -108,6 +110,9 @@ class FlashSM90:
         self.sO_layout = None
         self.shared_storage = None
         self.mma_m_size=mma_m_size
+
+        self.epi_n = epi_n
+        self.epi_stages = epi_stages
 
     @cute.jit
     def __call__(
@@ -525,6 +530,19 @@ class FlashSM90:
 
         mO_curr = mO[None, None, head_idx, batch_idx]
         gO = cute.local_tile(mO_curr, (self.tile_m, self.hdimv), (m_block, 0))
+        
+        thr_copy_r2s = tiled_copy_r2s.get_slice(tidx)
+        tRS_sD = thr_copy_r2s.partition_D(sO) # m, n, stages
+        tRS_rAcc = tiled_copy_r2s.retile(acc_o) # TODO ???
+
+        # make registers to represent one stage of the epilogue
+        rD_shape = cute.shape(thr_copy_r2s.partition_S(sO))
+        tRS_rD_layout = cute.make_layout(rD_shape[:3]) # just one stage
+        tRS_rD = cute.make_rmem_tensor_like(tRS_rD_layout, self.acc_dtype)
+        size_tRS_rD = cute.size(tRS_rD)
+
+        print(tRS_rD)
+        print(gO)
 
     
     @cute.jit
@@ -602,7 +620,11 @@ class FlashSM90:
             sm90_utils.get_smem_layout_atom(utils.LayoutEnum.ROW_MAJOR, self.dtype, self.hdimv),
             self.dtype
         )
-        o_smem_atom = v_smem_atom
+
+        o_smem_atom = cute.nvgpu.warpgroup.make_smem_layout_atom(
+            sm90_utils.get_smem_layout_atom(utils.LayoutEnum.ROW_MAJOR, self.dtype, self.epi_n),
+            self.dtype
+        )
 
         self.sQ_layout = cute.tile_to_shape(
             q_smem_atom, (self.tile_m, self.hdimk), (0, 1)
@@ -617,7 +639,7 @@ class FlashSM90:
         )
 
         self.sO_layout = cute.tile_to_shape(
-            o_smem_atom, (self.tile_m, self.hdimv), (0, 1)
+            o_smem_atom, (self.tile_m, self.epi_n, self.epi_stages), (0, 1, 2)
         )
     
     def _get_shared_storage_cls(self):
@@ -679,7 +701,7 @@ class FlashSM90:
         tma_atom_o, tma_tensor_o = cute.nvgpu.cpasync.make_tiled_tma_atom(
             gso,
             mO,
-            self.sO_layout,
+            cute.select(self.sO_layout, mode=[0, 1]),
             (self.tile_m, self.hdimv)
         )
         return tma_atom_q, tma_tensor_q, tma_atom_k, tma_tensor_k, tma_atom_v, tma_tensor_v, tma_atom_o, tma_tensor_o
