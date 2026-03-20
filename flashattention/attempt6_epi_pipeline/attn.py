@@ -518,6 +518,11 @@ class FlashSM90:
 
     @cute.jit
     def epilogue(self, acc_o: cute.Tensor, sO: cute.Tensor, mO: cute.Tensor, tma_atom_O: cute.CopyAtom, tiled_mma_pv: cute.TiledMma, tidx: Int32, m_block: int, head_idx: int, batch_idx: int):
+        cute.arch.barrier_arrive(
+            barrier_id=int(NamedBarrierFwd.Epilogue),
+            number_of_threads=self.num_epilogue_threads + cute.arch.WARP_SIZE
+        )
+        
         # barrier
         copy_atom_C = cute.make_copy_atom(
             cute.nvgpu.warp.StMatrix8x8x16bOp(
@@ -558,19 +563,48 @@ class FlashSM90:
         epi_layout = cute.make_layout(epi_tile_shape, stride=(epi_tile_shape[1], 1))
 
         for epi_idx in cutlass.range_constexpr(epi_tile_num):
+            # copy acc_o into tRS_rD
             for epi_v in cutlass.range_constexpr(size_tRS_rD):
-                tRs_rD[epi_v] = tRs_rAcc[epi_idx * size_tRS_rD + epi_v]
+                tRS_rD[epi_v] = tRS_rAcc[epi_idx * size_tRS_rD + epi_v]
             
+            # convert to dtype
             tRS_rD_out = cute.make_rmem_tensor_like(tRS_rD_layout, self.dtype)
             acc_vec = tRS_rD.load()
             tRS_rD_out.store(acc_vec.to(self.dtype))
 
+            # which stage to copy to
             epi_buffer = epi_idx % cute.size(tRS_sD, mode=[3]) # num stages
             cute.copy(
                 tiled_copy_r2s, tRS_rD_out, tRS_sD[(None, None, None, epi_buffer)]
             )
-            cute.arch.fence_proxy(...)
+            cute.arch.fence_proxy(cute.arch.ProxyKind.async_shared, space=cute.arch.SharedSpace.shared_cta)
             # barrier
+
+            cute.arch.barrier(
+                barrier_id=int(NamedBarrierFwd.Epilogue),
+                number_of_threads=self.num_epilogue_threads
+            )
+            # save to gO
+            gmem_coord = epi_layout.get_hier_coord(epi_idx)
+            warp_idx = cute.arch.make_warp_uniform(cute.arch.warp_idx())
+            if warp_idx == 0:
+                cute.copy(
+                    tma_atom_O,
+                    eTs[(None, epi_buffer)],
+                    eTg[(None, gmem_coord)],
+                )
+                cute.arch.cp_async_bulk_commit_group()
+                cute.arch.cp_async_bulk_wait_group(self.epi_stages - 1, read=True)
+            # barrier
+            cute.arch.barrier(
+                barrier_id=int(NamedBarrierFwd.Epilogue),
+                number_of_threads=self.num_epilogue_threads
+            )
+            
+        if warp_idx == 0:
+            cute.arch.cp_async_bulk_wait_group(0, read=True)
+
+            
 
 
 
