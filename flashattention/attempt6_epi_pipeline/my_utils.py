@@ -6,7 +6,7 @@ from cutlass.cute.nvgpu import warpgroup
 import cutlass.utils.hopper_helpers as sm90_utils
 from cutlass.cutlass_dsl import Numeric, dsl_user_op, T
 from cutlass.utils import LayoutEnum
-from cutlass._mlir.dialects import nvvm, llvm
+from cutlass._mlir.dialects import nvvm, llvm, arith
 
 def select(a: cute.Tensor, mode: list[int]) -> cute.Tensor:
     return cute.make_tensor(a.iterator, cute.select(a.layout, mode))
@@ -217,6 +217,33 @@ def fmax(a: float | cutlass.Float32, b: float | cutlass.Float32, c: float | cutl
         )
     )
 
+
+# fastmath for add and mul, never implemented though
+@dsl_user_op
+def fadd(a: float | cutlass.Float32, b: float | cutlass.Float32, *, fastmath=True, loc=None, ip=None) -> cutlass.Float32:
+    return cutlass.Float32(
+        arith.addf(
+            cutlass.Float32(a).ir_value(loc=loc, ip=ip),
+            cutlass.Float32(b).ir_value(loc=loc, ip=ip),
+            fastmath=fastmath,
+            loc=loc,
+            ip=ip,
+        )
+    )
+
+
+@dsl_user_op
+def mulf(a: float | cutlass.Float32, b: float | cutlass.Float32, *, fastmath=True, loc=None, ip=None) -> cutlass.Float32:
+    return cutlass.Float32(
+        arith.mulf(
+            cutlass.Float32(a).ir_value(loc=loc, ip=ip),
+            cutlass.Float32(b).ir_value(loc=loc, ip=ip),
+            fastmath=fastmath,
+            loc=loc,
+            ip=ip,
+        )
+    )
+
 @cute.jit
 def fmax_reduce(x: cute.TensorSSA, init_val: float | cutlass.Float32 | None = None) -> cutlass.Float32:
     res= cute.make_rmem_tensor(x.shape, cutlass.Float32)
@@ -271,14 +298,20 @@ def exp2f(x: cute.TensorSSA | cutlass.Float32) -> cute.TensorSSA | cutlass.Float
     else:
         return cute.math.exp2(x, fastmath=True)
 
+
 @cute.jit
 def fadd_reduce(
-    x: cute.TensorSSA, init_val: float | cutlass.Float32 | None = None
+    x: cute.TensorSSA, init_val: float | cutlass.Float32 | None = None, fastmath: bool=False
 ) -> cutlass.Float32:
     # sum reduction
     if const_expr(init_val is None):
         init_val = cutlass.Float32.zero
-    return x.reduce(cute.ReductionOp.ADD, init_val, 0)
+    if cutlass.const_expr(fastmath):
+        for i in cutlass.range_constexpr(cute.cosize(x)):
+            init_val = fadd(init_val, x[i], True)
+        return init_val
+    else:
+        return x.reduce(cute.ReductionOp.ADD, init_val, 0)
 
 
 @dsl_user_op
