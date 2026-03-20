@@ -135,6 +135,7 @@ class FlashSM90:
         self.num_threads = int((self.num_mma_warpgroups + 1) * THREADS_PER_WG)
 
         assert self.num_mma_warpgroups in (1, 2, 3, 4)
+        assert self.epi_stages != 1 or self.epi_n == self.hdimv
 
         # This actually matters, you don't want spills
         # self.num_mma_regs = (256, 240, 160)[int(self.num_mma_warpgroups - 1)]
@@ -604,66 +605,47 @@ class FlashSM90:
             
         if warp_idx == 4:
             cute.arch.cp_async_bulk_wait_group(0, read=True)
-
-            
-
-
-
-        # print(tRS_rAcc)
-        # print(tRS_rD)
-        # print(tCgC_for_tma)
-        # print(s_epi_tma)
-        # print(eTs)
-        # print(eTg)
-        # print(epi_layout)
-        # tensor<ptr<f32, rmem, align<32>> o ((8,4),1,1):((1,8),0,0)>
-        # tensor<ptr<f32, rmem, align<32>> o (((2,2,2),1),1,2):(((1,2,4),0),0,8)>
-        # tensor<(0,?{div=128},?,?) o ((128,32),(1,2)):((1@1,1@0),(0,32@0))>
-        # tensor<ptr<bf16, smem, align<1024>, S<2,4,3>> o (((8,16),(32,1)),(1,2)):(((32,256),(1,0)),(0,4096))>
-        # tensor<ptr<bf16, smem, align<1024>, S<2,4,3>> o ((4096,1),(1,2)):((1,0),(0,4096))>
-        # tensor<(0,?{div=128},?,?) o (((32,128),1),(1,2)):(((1@0,1@1),0),(0,32@0))>
-
     
-    # @cute.jit
-    # def epilogue(self, acc_o: cute.Tensor, sO: cute.Tensor, mO: cute.Tensor, tma_atom_O: cute.CopyAtom, tiled_mma: cute.TiledMma, tidx: Int32, m_block: int, head_idx: int, batch_idx: int):
-    #     # convert down IN REGISTERS
-    #     rO = cute.make_fragment_like(acc_o, self.dtype)
-    #     rO.store(acc_o.load().to(self.dtype))
+    @cute.jit
+    def epilogue_single_stage(self, acc_o: cute.Tensor, sO: cute.Tensor, mO: cute.Tensor, tma_atom_O: cute.CopyAtom, tiled_mma: cute.TiledMma, tidx: Int32, m_block: int, head_idx: int, batch_idx: int):
+        # convert down IN REGISTERS
+        rO = cute.make_fragment_like(acc_o, self.dtype)
+        rO.store(acc_o.load().to(self.dtype))
 
-    #     # Make sure no SMEM dependencies
-    #     cute.arch.barrier(barrier_id=int(NamedBarrierFwd.Epilogue), number_of_threads=self.num_epilogue_threads + cute.arch.WARP_SIZE)
-    #     # Copy R2S
-    #     smem_copy_atom_O = my_utils.get_smem_store_atom(90, self.dtype)
-    #     smem_thr_copy_O = cute.make_tiled_copy_C(smem_copy_atom_O, tiled_mma).get_slice(tidx)
-    #     taco = smem_thr_copy_O.retile(rO)
-    #     taco_s = smem_thr_copy_O.partition_D(sO)
-    #     cute.copy(smem_copy_atom_O, taco, taco_s)
+        # Make sure no SMEM dependencies
+        cute.arch.barrier(barrier_id=int(NamedBarrierFwd.Epilogue), number_of_threads=self.num_epilogue_threads + cute.arch.WARP_SIZE)
+        # Copy R2S
+        smem_copy_atom_O = my_utils.get_smem_store_atom(90, self.dtype)
+        smem_thr_copy_O = cute.make_tiled_copy_C(smem_copy_atom_O, tiled_mma).get_slice(tidx)
+        taco = smem_thr_copy_O.retile(rO)
+        taco_s = smem_thr_copy_O.partition_D(sO)
+        cute.copy(smem_copy_atom_O, taco, taco_s)
 
-    #     cute.arch.fence_proxy(cute.arch.ProxyKind.async_shared, space=cute.arch.SharedSpace.shared_cta)
-    #     cute.arch.barrier_arrive(
-    #         barrier_id=int(NamedBarrierFwd.Epilogue),
-    #         number_of_threads=self.num_epilogue_threads + cute.arch.WARP_SIZE
-    #     )
+        cute.arch.fence_proxy(cute.arch.ProxyKind.async_shared, space=cute.arch.SharedSpace.shared_cta)
+        cute.arch.barrier_arrive(
+            barrier_id=int(NamedBarrierFwd.Epilogue),
+            number_of_threads=self.num_epilogue_threads + cute.arch.WARP_SIZE
+        )
 
-    #     mO_curr = mO[None, None, head_idx, batch_idx]
-    #     gO = cute.local_tile(mO_curr, (self.tile_m, self.hdimv), (m_block, 0))
+        mO_curr = mO[None, None, head_idx, batch_idx]
+        gO = cute.local_tile(mO_curr, (self.tile_m, self.hdimv), (m_block, 0))
 
-    #     store_O, _, _ = my_utils.tma_get_copy_fn(
-    #         tma_atom_O, 0, cute.make_layout(1), sO, gO, single_stage=True
-    #     )
+        store_O, _, _ = my_utils.tma_get_copy_fn(
+            tma_atom_O, 0, cute.make_layout(1), sO, gO, single_stage=True
+        )
 
-    #     # extra +WARP_SIZE because warp 4 will arrive again before doing the tma store.
-    #     # Barrier ensures everything is in SMEM
-    #     warp_idx = cute.arch.make_warp_uniform(cute.arch.warp_idx())
-    #     if warp_idx == 4:
-    #         cute.arch.barrier(
-    #             barrier_id=int(NamedBarrierFwd.Epilogue),
-    #             number_of_threads=self.num_epilogue_threads + cute.arch.WARP_SIZE
-    #         )
-    #         # TMA store
-    #         store_O()
-    #         cute.arch.cp_async_bulk_commit_group()
-    #         cute.arch.cp_async_bulk_wait_group(0, read=True) # .read: no need to wait for writes to finish, just finish reading from SMEM
+        # extra +WARP_SIZE because warp 4 will arrive again before doing the tma store.
+        # Barrier ensures everything is in SMEM
+        warp_idx = cute.arch.make_warp_uniform(cute.arch.warp_idx())
+        if warp_idx == 4:
+            cute.arch.barrier(
+                barrier_id=int(NamedBarrierFwd.Epilogue),
+                number_of_threads=self.num_epilogue_threads + cute.arch.WARP_SIZE
+            )
+            # TMA store
+            store_O()
+            cute.arch.cp_async_bulk_commit_group()
+            cute.arch.cp_async_bulk_wait_group(0, read=True) # .read: no need to wait for writes to finish, just finish reading from SMEM
         
     def _get_tiled_mma(self):
         tiled_mma_qk = sm90_utils.make_trivial_tiled_mma(
@@ -717,9 +699,14 @@ class FlashSM90:
             (0, 1, 2),
         )
 
-        self.sO_layout = cute.tile_to_shape(
-            o_smem_atom, (self.tile_m, self.epi_n, self.epi_stages), (0, 1, 2)
-        )
+        if self.epi_stages == 1:
+            self.sO_layout = cute.tile_to_shape(
+                o_smem_atom, (self.tile_m, self.epi_n), (0, 1)
+            )
+        else:
+            self.sO_layout = cute.tile_to_shape(
+                o_smem_atom, (self.tile_m, self.epi_n, self.epi_stages), (0, 1, 2)
+            )
     
     def _get_shared_storage_cls(self):
         sQ_struct, sK_struct, sV_struct = [
