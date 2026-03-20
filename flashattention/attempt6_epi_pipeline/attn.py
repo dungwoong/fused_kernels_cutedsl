@@ -562,6 +562,7 @@ class FlashSM90:
         epi_tile_shape = tCgC_for_tma.shape[1]
         epi_layout = cute.make_layout(epi_tile_shape, stride=(epi_tile_shape[1], 1))
 
+        warp_idx = cute.arch.make_warp_uniform(cute.arch.warp_idx())
         for epi_idx in cutlass.range_constexpr(epi_tile_num):
             # copy acc_o into tRS_rD
             for epi_v in cutlass.range_constexpr(size_tRS_rD):
@@ -577,44 +578,44 @@ class FlashSM90:
             cute.copy(
                 tiled_copy_r2s, tRS_rD_out, tRS_sD[(None, None, None, epi_buffer)]
             )
-            cute.arch.fence_proxy(cute.arch.ProxyKind.async_shared, space=cute.arch.SharedSpace.shared_cta)
+            cute.arch.fence_proxy(cute.arch.ProxyKind.async_shared, space=cute.arch.SharedSpace.shared_cta) # omitting this may cause a crash when running the kernel multiple times
             # barrier
 
+            # need to use a different barrier, since producer might still be arriving at other barrier
             cute.arch.barrier(
-                barrier_id=int(NamedBarrierFwd.Epilogue),
+                barrier_id=int(NamedBarrierFwd.Tmp1),
                 number_of_threads=self.num_epilogue_threads
             )
             # save to gO
             gmem_coord = epi_layout.get_hier_coord(epi_idx)
-            warp_idx = cute.arch.make_warp_uniform(cute.arch.warp_idx())
-            if warp_idx == 0:
+            if warp_idx == 4:
                 cute.copy(
                     tma_atom_O,
                     eTs[(None, epi_buffer)],
                     eTg[(None, gmem_coord)],
                 )
                 cute.arch.cp_async_bulk_commit_group()
-                cute.arch.cp_async_bulk_wait_group(self.epi_stages - 1, read=True)
+                cute.arch.cp_async_bulk_wait_group(0, read=True)
             # barrier
             cute.arch.barrier(
-                barrier_id=int(NamedBarrierFwd.Epilogue),
+                barrier_id=int(NamedBarrierFwd.Tmp1),
                 number_of_threads=self.num_epilogue_threads
             )
             
-        if warp_idx == 0:
+        if warp_idx == 4:
             cute.arch.cp_async_bulk_wait_group(0, read=True)
 
             
 
 
 
-        print(tRS_rAcc)
-        print(tRS_rD)
-        print(tCgC_for_tma)
-        print(s_epi_tma)
-        print(eTs)
-        print(eTg)
-        print(epi_layout)
+        # print(tRS_rAcc)
+        # print(tRS_rD)
+        # print(tCgC_for_tma)
+        # print(s_epi_tma)
+        # print(eTs)
+        # print(eTg)
+        # print(epi_layout)
         # tensor<ptr<f32, rmem, align<32>> o ((8,4),1,1):((1,8),0,0)>
         # tensor<ptr<f32, rmem, align<32>> o (((2,2,2),1),1,2):(((1,2,4),0),0,8)>
         # tensor<(0,?{div=128},?,?) o ((128,32),(1,2)):((1@1,1@0),(0,32@0))>
@@ -869,7 +870,7 @@ if __name__ == "__main__":
 
     # good with dim=64
     # FlashSM90(qk_mn=(128, 128), num_stages=5, cluster_size_m=1, intra_wg_overlap=True, pingpong=True)
-    fa = FlashSM90(qk_mn=(128, 128), num_stages=4, cluster_size_m=1, intra_wg_overlap=True, pingpong=True, mma_m_size=64)
+    fa = FlashSM90(qk_mn=(128, 128), num_stages=3, cluster_size_m=1, intra_wg_overlap=True, pingpong=True, mma_m_size=64, epi_n=32, epi_stages=2)
     # fa = FlashSM90(qk_mn=(256, 64), num_stages=2, cluster_size_m=1, intra_wg_overlap=False, pingpong=False, mma_m_size=128)
     
     # this actually beats cudnn on 4, 16, 8192, 128 
@@ -895,6 +896,8 @@ if __name__ == "__main__":
     idx3 = max_idx % dim
     # print(ref[0, 0, idx2, ...])
     # print(o[0, 0, idx2, ...])
+    # print(ref[0, ...])
+    # print(o[0, ...])
 
     with sdpa_kernel([SDPBackend.CUDNN_ATTENTION]):
         time_torch = do_bench(lambda: F.scaled_dot_product_attention(q, k, v))
