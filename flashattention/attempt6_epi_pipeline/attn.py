@@ -380,7 +380,10 @@ class FlashSM90:
             row_scale = softmax.finalize()
             softmax.rescale_O(acc_o, row_scale)
 
-            self.epilogue(acc_o, sO, mO, tma_atom_o, mma_pv, tidx, m_block, head_idx, batch_idx)
+            if cutlass.const_expr(self.epi_stages == 1):
+                self.epilogue_single_stage(acc_o, sO, mO, tma_atom_o, mma_pv, tidx, m_block, head_idx, batch_idx)
+            else:
+                self.epilogue(acc_o, sO, mO, tma_atom_o, mma_pv, tidx, m_block, head_idx, batch_idx)
             tile_scheduler.advance_to_next_work()
             work_tile = tile_scheduler.get_current_work()
     
@@ -856,13 +859,12 @@ if __name__ == "__main__":
     current_stream = cuda.CUstream(torch.cuda.current_stream().cuda_stream)
 
     # good with dim=64
-    # FlashSM90(qk_mn=(128, 128), num_stages=5, cluster_size_m=1, intra_wg_overlap=True, pingpong=True)
-    fa = FlashSM90(qk_mn=(128, 128), num_stages=3, cluster_size_m=1, intra_wg_overlap=True, pingpong=True, mma_m_size=64, epi_n=32, epi_stages=2)
+    fa = FlashSM90(qk_mn=(128, 128), num_stages=4, cluster_size_m=1, intra_wg_overlap=True, pingpong=True, mma_m_size=64, epi_n=64, epi_stages=1)
     # fa = FlashSM90(qk_mn=(256, 64), num_stages=2, cluster_size_m=1, intra_wg_overlap=False, pingpong=False, mma_m_size=128)
     
     # this actually beats cudnn on 4, 16, 8192, 128 
-    # fa = FlashSM90(qk_mn=(128, 128), num_stages=2, cluster_size_m=1, intra_wg_overlap=False, pingpong=True)
-    compiled_fa = cute.compile(fa, q_cute, k_cute, v_cute, o_cute, rt, current_stream, options="--keep-ptx --ptxas-options='-v'") # --ptxas-options='-v' does nothing
+    # fa = FlashSM90(qk_mn=(128, 128), num_stages=2, cluster_size_m=1, intra_wg_overlap=False, pingpong=True, epi_n=32, epi_stages=4)
+    compiled_fa = cute.compile(fa, q_cute, k_cute, v_cute, o_cute, rt, current_stream, options="--ptxas-options='-v'") # --ptxas-options='-v' does nothing
     # dump_kernel_attributes(compiled_fa)
     compiled_fa(q_cute, k_cute, v_cute, o_cute, rt, current_stream)
 
