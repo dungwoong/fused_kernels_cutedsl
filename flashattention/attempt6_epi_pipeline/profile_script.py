@@ -33,55 +33,57 @@ def run_torch(q, k, v):
     return ref, time_torch
 
 CONFIGS_64 = (
-    [256, 2, False, False],
-    [256, 2, False, True],
-    [128, 6, False, False],
-    [128, 6, True, False],
-    [128, 6, False, True],
-    [128, 6, True, True],
-    [128, 2, False, False],
-    [128, 2, False, True],
-    [128, 2, True, False],
-    [128, 2, True, True],
+    [256, 2, False, False, 64, 1],
+    [256, 2, False, True, 64, 1],
+    [128, 2, False, False, 64, 1],
+    [128, 2, True, False, 64, 1],
+    [128, 2, False, True, 64, 1],
+    [128, 2, True, True, 64, 1],
+    [128, 4, False, False, 64, 1],
+    [128, 4, False, True, 64, 1],
+    [128, 4, True, False, 64, 1],
+    [128, 4, True, True, 64, 1],
+    [128, 4, True, True, 32, 2],
+    [128, 4, True, True, 32, 2],
 )
 
 CONFIGS_128 = (
-    [128, 2, False, False],
-    [128, 2, False, True],
-    [128, 2, True, False],
-    [128, 2, True, True],
-    [128, 3, False, False],
-    [128, 3, False, True],
-    [128, 3, True, False],
-    [128, 3, True, True], # Idk if you can do 3 here
+    [128, 2, False, False, 128, 1],
+    [128, 2, False, True, 128, 1],
+    [128, 2, True, False, 128, 1],
+    [128, 2, True, True, 128, 1],
+    [128, 2, False, True, 64, 2],
+    [128, 2, True, True, 64, 2],
 )
 
-def get_str(method, problem_dims, mma_qk_n=None, num_stages=None, iwo=None, pingpong=None, correct=None, ms=None, tflops=None, error=None, torch_time=None):
+def get_str(method, problem_dims, mma_qk_n=None, num_stages=None, iwo=None, pingpong=None, epi_n=None, epi_stages=None, correct=None, ms=None, tflops=None, error=None, torch_time=None, speedup=None):
     problem_dims = ','.join(str(d) for d in problem_dims)
-    return f"{method},{problem_dims},{mma_qk_n},{num_stages},{iwo},{pingpong},{correct},{ms},{tflops},{error},{torch_time}\n"
+    if torch_time is not None and ms is not None:
+        speedup = torch_time / ms
+    return f"{method},{problem_dims},{mma_qk_n},{num_stages},{iwo},{pingpong},{epi_n},{epi_stages},{correct},{ms},{tflops},{error},{torch_time},{speedup}\n"
 
-def run_cute(bs, h, seqlen, dim, mma_qk_n, num_stages, iwo, pingpong, torch_time):
+def run_cute(bs, h, seqlen, dim, mma_qk_n, num_stages, iwo, pingpong, epi_n, epi_stages, torch_time):
     STREAM = cuda.CUstream(torch.cuda.current_stream().cuda_stream)
     tflops = partial(get_tflops, bs, h, seqlen, dim)
     rt = 1 / math.sqrt(dim)
     q, k, v, o = get_qkvo(bs, h, seqlen, dim)
     [q_cute, k_cute, v_cute, o_cute] = [convert_from_dlpack(x) for x in (q, k, v, o)]
     o_ref = F.scaled_dot_product_attention(q, k, v)
-    fa = FlashSM90(qk_mn=(128, mma_qk_n), num_stages=num_stages, cluster_size_m=1, intra_wg_overlap=iwo, pingpong=pingpong)
+    fa = FlashSM90(qk_mn=(128, mma_qk_n), num_stages=num_stages, cluster_size_m=1, intra_wg_overlap=iwo, pingpong=pingpong, epi_n=epi_n, epi_stages=epi_stages)
     compiled_fa = cute.compile(fa, q_cute, k_cute, v_cute, o_cute, rt, STREAM)
     compiled_fa(q_cute, k_cute, v_cute, o_cute, rt, STREAM)
     correct = torch.allclose(o_ref, o, atol=1e-1, rtol=1e-1)
     t_cute = do_bench(lambda: compiled_fa(q_cute, k_cute, v_cute, o_cute, rt, STREAM))
     f_cute = tflops(t_cute)
-    return get_str("cute", (bs, h, seqlen, dim), mma_qk_n, num_stages, iwo, pingpong, correct, t_cute, f_cute, torch_time=torch_time)
+    return get_str("cute", (bs, h, seqlen, dim), mma_qk_n, num_stages, iwo, pingpong, epi_n, epi_stages, correct, t_cute, f_cute, torch_time=torch_time)
 
-def async_wrapper(queue, bs, h, seqlen, dim, mma_qk_n, num_stages, iwo, pingpong, torch_time):
+def async_wrapper(queue, bs, h, seqlen, dim, mma_qk_n, num_stages, iwo, pingpong, epi_n, epi_stages, torch_time):
     buf = io.StringIO()
     old_out, old_error = sys.stdout, sys.stderr
     sys.stdout, sys.stderr = buf, buf
     try:
         torch.cuda.init()
-        output = run_cute(bs, h, seqlen, dim, mma_qk_n, num_stages, iwo, pingpong, torch_time)
+        output = run_cute(bs, h, seqlen, dim, mma_qk_n, num_stages, iwo, pingpong, epi_n, epi_stages, torch_time)
         queue.put(('ok', output, ""))
     except Exception as e:
         err_str = "\"" + str(e) + "\""
@@ -89,10 +91,10 @@ def async_wrapper(queue, bs, h, seqlen, dim, mma_qk_n, num_stages, iwo, pingpong
     finally:
         sys.stdout, sys.stderr = old_out, old_error
 
-def run_test(f, bs, h, seqlen, dim, mma_qk_n, num_stages, iwo, pingpong, torch_time, timeout=30):
+def run_test(f, bs, h, seqlen, dim, mma_qk_n, num_stages, iwo, pingpong, epi_n, epi_stages, torch_time, timeout=30):
     ctx = mp.get_context('spawn')
     q = ctx.Queue()
-    p = ctx.Process(target=async_wrapper, args=(q, bs, h, seqlen, dim, mma_qk_n, num_stages, iwo, pingpong, torch_time))
+    p = ctx.Process(target=async_wrapper, args=(q, bs, h, seqlen, dim, mma_qk_n, num_stages, iwo, pingpong, epi_n, epi_stages, torch_time))
     p.start()
 
     p.join(timeout=timeout)
@@ -125,9 +127,9 @@ def run_trial(f, bs, h, seqlen, dim):
 
     # [q_cute, k_cute, v_cute, o_cute] = [convert_from_dlpack(x) for x in (q, k, v, o)]
     configs = CONFIGS_64 if dim == 64 else CONFIGS_128
-    for i, (mma_qk_n, num_stages, iwo, pingpong) in enumerate(configs):
-        print(f'running {mma_qk_n}, {num_stages}, {iwo}, {pingpong}')
-        run_test(f, bs, h, seqlen, dim, mma_qk_n, num_stages, iwo, pingpong, t_torch)
+    for i, (mma_qk_n, num_stages, iwo, pingpong, epi_n, epi_stages) in enumerate(configs):
+        print(f'running {mma_qk_n}, {num_stages}, {iwo}, {pingpong} {epi_n}, {epi_stages}')
+        run_test(f, bs, h, seqlen, dim, mma_qk_n, num_stages, iwo, pingpong, epi_n, epi_stages, t_torch)
         # o.fill_(1) # so we can re-verify
         # fa = FlashSM90(qk_mn=(128, mma_qk_n), num_stages=num_stages, cluster_size_m=1, intra_wg_overlap=iwo, pingpong=pingpong)
         # compiled_fa = cute.compile(fa, q_cute, k_cute, v_cute, o_cute, rt, STREAM)

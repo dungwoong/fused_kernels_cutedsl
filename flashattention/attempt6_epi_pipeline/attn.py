@@ -135,7 +135,7 @@ class FlashSM90:
         self.num_threads = int((self.num_mma_warpgroups + 1) * THREADS_PER_WG)
 
         assert self.num_mma_warpgroups in (1, 2, 3, 4)
-        assert self.epi_stages != 1 or self.epi_n == self.hdimv
+        assert self.epi_stages != 1 or self.epi_n == self.hdimv, f'{self.hdimv=}, {self.epi_n=}'
 
         # This actually matters, you don't want spills
         # self.num_mma_regs = (256, 240, 160)[int(self.num_mma_warpgroups - 1)]
@@ -859,8 +859,8 @@ if __name__ == "__main__":
     current_stream = cuda.CUstream(torch.cuda.current_stream().cuda_stream)
 
     # good with dim=64
-    fa = FlashSM90(qk_mn=(128, 128), num_stages=4, cluster_size_m=1, intra_wg_overlap=True, pingpong=True, mma_m_size=64, epi_n=64, epi_stages=1)
-    # fa = FlashSM90(qk_mn=(256, 64), num_stages=2, cluster_size_m=1, intra_wg_overlap=False, pingpong=False, mma_m_size=128)
+    # fa = FlashSM90(qk_mn=(128, 128), num_stages=4, cluster_size_m=1, intra_wg_overlap=True, pingpong=True, mma_m_size=64, epi_n=64, epi_stages=1)
+    fa = FlashSM90(qk_mn=(128, 128), num_stages=4, cluster_size_m=2, intra_wg_overlap=True, pingpong=True, mma_m_size=64, epi_n=32, epi_stages=2)
     
     # this actually beats cudnn on 4, 16, 8192, 128 
     # fa = FlashSM90(qk_mn=(128, 128), num_stages=2, cluster_size_m=1, intra_wg_overlap=False, pingpong=True, epi_n=32, epi_stages=4)

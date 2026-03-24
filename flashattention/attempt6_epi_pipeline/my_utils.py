@@ -219,8 +219,9 @@ def fmax(a: float | cutlass.Float32, b: float | cutlass.Float32, c: float | cutl
 
 
 # fastmath for add and mul, never implemented though
+# fastmath can be 'fast', etc.
 @dsl_user_op
-def fadd(a: float | cutlass.Float32, b: float | cutlass.Float32, *, fastmath=True, loc=None, ip=None) -> cutlass.Float32:
+def fadd(a: float | cutlass.Float32, b: float | cutlass.Float32, *, fastmath=None, loc=None, ip=None) -> cutlass.Float32:
     return cutlass.Float32(
         arith.addf(
             cutlass.Float32(a).ir_value(loc=loc, ip=ip),
@@ -233,7 +234,7 @@ def fadd(a: float | cutlass.Float32, b: float | cutlass.Float32, *, fastmath=Tru
 
 
 @dsl_user_op
-def mulf(a: float | cutlass.Float32, b: float | cutlass.Float32, *, fastmath=True, loc=None, ip=None) -> cutlass.Float32:
+def mulf(a: float | cutlass.Float32, b: float | cutlass.Float32, *, fastmath=None, loc=None, ip=None) -> cutlass.Float32:
     return cutlass.Float32(
         arith.mulf(
             cutlass.Float32(a).ir_value(loc=loc, ip=ip),
@@ -301,14 +302,14 @@ def exp2f(x: cute.TensorSSA | cutlass.Float32) -> cute.TensorSSA | cutlass.Float
 
 @cute.jit
 def fadd_reduce(
-    x: cute.TensorSSA, init_val: float | cutlass.Float32 | None = None, fastmath: bool=False
+    x: cute.TensorSSA, init_val: float | cutlass.Float32 | None = None, fastmath: bool=None
 ) -> cutlass.Float32:
     # sum reduction
     if const_expr(init_val is None):
         init_val = cutlass.Float32.zero
     if cutlass.const_expr(fastmath):
-        for i in cutlass.range_constexpr(cute.cosize(x)):
-            init_val = fadd(init_val, x[i], True)
+        for i in cutlass.range_constexpr(cute.size(x.shape)):
+            init_val = fadd(init_val, x[i], fastmath=fastmath)
         return init_val
     else:
         return x.reduce(cute.ReductionOp.ADD, init_val, 0)

@@ -62,13 +62,13 @@ class Softmax(ParamsBase):
             if cutlass.const_expr(is_first):
                 row_max_cur_scaled = row_max_cur * scale_log2
                 acc_S_row_exp = my_utils.exp2f(acc_S_row * scale_log2 - row_max_cur_scaled) # exp2f(scale_log2(s - max)) = exp(s-max)
-                acc_S_row_sum = my_utils.fadd_reduce(acc_S_row_exp, init_val=None) # sum(exp(s-max))
+                acc_S_row_sum = my_utils.fadd_reduce(acc_S_row_exp, init_val=None, fastmath=None) # sum(exp(s-max))
                 row_scale[r] = 1.0
             else:
                 row_max_cur_scaled = row_max_cur * scale_log2
                 acc_S_row_exp = my_utils.exp2f(acc_S_row * scale_log2 - row_max_cur_scaled) # exp(s-max)
                 row_scale[r] = my_utils.exp2f((row_max_prev - row_max_cur) * scale_log2) # rowscale = exp(mprev - mcur)
-                acc_S_row_sum = my_utils.fadd_reduce(acc_S_row_exp, init_val=row_sum[r] * row_scale[r]) # rowsum = sum(exp(x-max)) + prevsum * rowscale
+                acc_S_row_sum = my_utils.fadd_reduce(acc_S_row_exp, init_val=row_sum[r] * row_scale[r], fastmath=None) # rowsum = sum(exp(x-max)) + prevsum * rowscale
 
             row_sum[r] = acc_S_row_sum
             acc_S_mn[r, None].store(acc_S_row_exp)
