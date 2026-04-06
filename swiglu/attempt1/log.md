@@ -1,3 +1,5 @@
+[(Wx) x sigmoid(Wx)] x (Vx) or alternatively silu(Wx) x Vx
+
 # Some feedback for the auto-generation
 - Slicing tma tensors is going into the loop, and it's not being used by the load for some reason.
 - For the producer, you can switch the `if warp_idx == 0` and the `for` loop
