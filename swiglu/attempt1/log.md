@@ -7,3 +7,8 @@
 # Modifying GEMM.py
 - before, supports ab. Now, we want xW, xV so we need A = x and then we need to support W and V so there's just 2 B matrices
 - gonna add `b1=v` and assign `b=w`
+- We need to actually consider kaiming initialization or something or else when you multiply the results of two 4096 gemms...yeah the outputs are like 16k, errors are like 128. It's bad.
+
+# Things to modify
+- Add a separate pipeline for V because we don't need to wait for it with W
+- We could try something like holding X in registers so we don't need to re-read it from SMEM. Should consult Nsight compute for this though, it might already be doing it(?)
