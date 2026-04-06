@@ -635,18 +635,18 @@ if __name__ == "__main__":
     if not allclose:
         print("!!!!!! WARNING -- INCORRECT !!!!!!")
 
-    diff = (c - test1).abs()
+    diff = (c - ref).abs()
     max_val, max_idx = diff.view(-1).max(0)
     if IS_DEBUG:
-        # print(ref)
-        # print(c)
+        print(ref)
+        print(c)
         ...
 
     if IS_DEBUG:
         n_incorrect = c.numel() - ((c - ref).abs() < 1).sum()
         print('n_incorrect :', n_incorrect)
         print('n_nonzero :', (c != 0).sum())
-        print(f'Max error: {max_val.item()}')
+        print(f'Max error: {max_val.item()} at ref={ref.view(-1)[max_idx]} c={c.view(-1)[max_idx]}')
 
     def profile_ms(op, repeats=30):
 

@@ -50,6 +50,12 @@ def printwg(x):
         if tidx%128 == 0 and bidx == 0 and bidy == 0 and bidz == 0:
             cute.printf(x)
 
+
+def silu_f32(x: cutlass.Float32) -> cutlass.Float32:
+    L2E = math.log2(math.e)
+    exp_neg_x = cute.math.exp2(x * -1.0 * L2E, fastmath=True)
+    return x / (1.0 + exp_neg_x)
+
 class GemmSM90:
     def __init__(
         self,
@@ -349,7 +355,8 @@ class GemmSM90:
             for epi_v in cutlass.range_constexpr(size_tRS_rD):
                 # Take a slice of the accumulators
                 # [DONE] perform the add here, we can change it to swiglu later
-                tRS_rD[epi_v] = tRS_rAcc[epi_idx * size_tRS_rD + epi_v] + tRS_rAcc_b1[epi_idx * size_tRS_rD + epi_v]
+                # tRS_rAcc = Wx, other is Vx
+                tRS_rD[epi_v] = silu_f32(tRS_rAcc[epi_idx * size_tRS_rD + epi_v]) * tRS_rAcc_b1[epi_idx * size_tRS_rD + epi_v]
             
             # Type conversion
             tRS_rD_out = cute.make_rmem_tensor_like(tRS_rD_layout, self.c_dtype)
@@ -436,6 +443,7 @@ class GemmSM90:
             mma.accumulating_gemm_ss(tidx, tiled_mma, sA, sB1, accumulators_ab1, read_state, read_state, accumulate_O, -1)
             accumulate_O = True
             cute.nvgpu.warpgroup.wait_group(wait_amount)
+            # cute.nvgpu.warpgroup.wait_group(0)
             pipe.consumer_release(release_state)
             read_state.advance()
             release_state.advance()
@@ -607,12 +615,22 @@ if __name__ == "__main__":
     def get_tflops(time_ms):
         return (flops / (time_ms / 1e3)) / 1e12
 
-    a = torch.randn((m, k), dtype=torch.bfloat16).to('cuda')
-    b = torch.randn((n, k), dtype=torch.bfloat16).to('cuda')
-    b1 = torch.randn((n, k), dtype=torch.bfloat16).to('cuda')
-    c = torch.empty((m, n), dtype=torch.bfloat16).to('cuda')
-    ref = (a.to(torch.float32) @ b.t().to(torch.float32) + a.to(torch.float32) @ b1.t().to(torch.float32)).to(torch.bfloat16)
-    test1 = (torch.cat((a, a), dim=1) @ torch.cat((b, b1), dim=1).t())
+    # kaiming: 1/sqrt(fan_in), fan_in means how many features go into the linear layer
+    mul_factor = 1 / k**0.5
+    a = torch.randn((m, k), dtype=torch.bfloat16).mul(mul_factor).to('cuda') # 1/sqrt(d) scaling
+    b = torch.randn((n, k), dtype=torch.bfloat16).mul(mul_factor).to('cuda')
+    b1 = torch.randn((n, k), dtype=torch.bfloat16).mul(mul_factor).to('cuda')
+    c = torch.empty((m, n), dtype=torch.bfloat16).mul(mul_factor).to('cuda')
+
+    @torch.compile
+    def torch_gemm():
+        in1 = a @ b.t()
+        in2 = a @ b1.t()
+        return torch.nn.functional.silu(in1) * in2
+    
+    ref = torch_gemm()
+    # ref = (torch.nn.functional.silu(a.to(torch.float32) @ b.t().to(torch.float32)) * a.to(torch.float32) @ b1.t().to(torch.float32)).to(torch.bfloat16)
+    # test1 = (torch.cat((a, a), dim=1) @ torch.cat((b, b1), dim=1).t())
     convert_from_dlpack = lambda tensor: (
         from_dlpack(tensor.detach(), assumed_align=16).mark_compact_shape_dynamic(
             mode=0, stride_order=(0, 1)
@@ -626,27 +644,28 @@ if __name__ == "__main__":
                     atom_layout_mn=(2, 1),
                     ab_stage=3,
                     reuse_ab=False,
-                    is_persistent=True)
+                    is_persistent=True,
+                    gemm_n_prologue=0) # I'm not sure why prologue gemms don't seem to do anything, maybe because we already use up a lot of registers? idk
     compiled_gemm = cute.compile(gemm, a_cute, b_cute, b1_cute, c_cute, current_stream)
     compiled_gemm(a_cute, b_cute, b1_cute, c_cute, current_stream)
 
-    allclose = torch.allclose(ref, c, atol=1e-1, rtol=1e-1)
+    allclose = torch.allclose(ref, c, atol=1e-3, rtol=1e-3)
     print('All close:', allclose)
     if not allclose:
         print("!!!!!! WARNING -- INCORRECT !!!!!!")
 
-    diff = (c - test1).abs()
+    diff = (c - ref).abs()
     max_val, max_idx = diff.view(-1).max(0)
     if IS_DEBUG:
         # print(ref)
         # print(c)
-        ...
+        print(ref - c)
 
     if IS_DEBUG:
-        n_incorrect = c.numel() - ((c - ref).abs() < 1).sum()
+        n_incorrect = c.numel() - ((c - ref).abs() < 10).sum()
         print('n_incorrect :', n_incorrect)
         print('n_nonzero :', (c != 0).sum())
-        print(f'Max error: {max_val.item()}')
+        print(f'Max error: {max_val.item()} at ref={ref.view(-1)[max_idx]} c={c.view(-1)[max_idx]}')
 
     def profile_ms(op, repeats=30):
 
@@ -672,13 +691,9 @@ if __name__ == "__main__":
         torch.cuda.synchronize()
         return statistics.median([s.elapsed_time(e) for s, e in zip(start, end)])
 
-    @torch.compile
-    def torch_gemm():
-        return a @ b.t() + a @ b1.t()
-
     if IS_SPEED:
         my_ms = do_bench(lambda: compiled_gemm(a_cute, b_cute, b1_cute, c_cute, current_stream))
         other_ms = do_bench(torch_gemm)
-        print(f'{my_ms=}, {other_ms=}')
+        print(f'{my_ms=}, {other_ms=} speedup={other_ms / my_ms}')
         my_flops, other_flops = get_tflops(my_ms), get_tflops(other_ms)
         print(f'{my_flops=}, {other_flops=}')
