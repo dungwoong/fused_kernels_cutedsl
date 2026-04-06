@@ -859,8 +859,12 @@ if __name__ == "__main__":
     current_stream = cuda.CUstream(torch.cuda.current_stream().cuda_stream)
 
     # good with dim=64
-    # fa = FlashSM90(qk_mn=(128, 128), num_stages=4, cluster_size_m=1, intra_wg_overlap=True, pingpong=True, mma_m_size=64, epi_n=64, epi_stages=1)
-    fa = FlashSM90(qk_mn=(128, 128), num_stages=4, cluster_size_m=2, intra_wg_overlap=True, pingpong=True, mma_m_size=64, epi_n=32, epi_stages=2)
+    # fa = FlashSM90(qk_mn=(128, 64), num_stages=4, cluster_size_m=2, intra_wg_overlap=True, pingpong=True, mma_m_size=64, epi_n=128, epi_stages=1) # this is decent but not good
+    # fa = FlashSM90(qk_mn=(128, 128), num_stages=2, cluster_size_m=2, intra_wg_overlap=False, pingpong=True, mma_m_size=64, epi_n=128, epi_stages=1)
+    
+    # this one's good for dim=64
+    # fa = FlashSM90(qk_mn=(128, 128), num_stages=4, cluster_size_m=2, intra_wg_overlap=True, pingpong=True, mma_m_size=64, epi_n=32, epi_stages=2)
+    fa = FlashSM90(qk_mn=(128, 128), num_stages=4, cluster_size_m=2, intra_wg_overlap=True, pingpong=True, mma_m_size=64, epi_n=64, epi_stages=1)
     
     # this actually beats cudnn on 4, 16, 8192, 128 
     # fa = FlashSM90(qk_mn=(128, 128), num_stages=2, cluster_size_m=1, intra_wg_overlap=False, pingpong=True, epi_n=32, epi_stages=4)

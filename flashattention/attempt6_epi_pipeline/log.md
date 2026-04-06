@@ -6,3 +6,6 @@
 - partition it up with a thr copy. your epi smem layout should have stages to begin with btw so the partition should just give you stages
 - ok then you gotta somehow partition up your SMEM and GMEM
 - then you do the copy and yeah ok
+
+- multicasting actually pushes up performance now, we can try that more often
+- we can try staging q now to get more performance increase
