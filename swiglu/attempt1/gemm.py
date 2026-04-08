@@ -609,7 +609,7 @@ if __name__ == "__main__":
     IS_DEBUG = args.mode == 'debug'
     IS_SPEED = args.mode == 'speed'
 
-    m, n, k = 4096, 4096, 4096
+    m, n, k = 2048, 4096, 4096
     flops = 2 * m * n * k
 
     def get_tflops(time_ms):
@@ -621,6 +621,7 @@ if __name__ == "__main__":
     b = torch.randn((n, k), dtype=torch.bfloat16).mul(mul_factor).to('cuda')
     b1 = torch.randn((n, k), dtype=torch.bfloat16).mul(mul_factor).to('cuda')
     c = torch.empty((m, n), dtype=torch.bfloat16).mul(mul_factor).to('cuda')
+    bb1 = torch.cat((b, b1), dim=0) # 2n, k
 
     @torch.compile
     def torch_gemm():
@@ -628,7 +629,13 @@ if __name__ == "__main__":
         in2 = a @ b1.t()
         return torch.nn.functional.silu(in1) * in2
     
-    ref = torch_gemm()
+    @torch.compile
+    def torch_swiglu():
+        o = a @ bb1.t() # m, 2n
+        o1, o2 = o.chunk(2, dim=1)
+        return torch.nn.functional.silu(o1) * o2
+    
+    ref = torch_swiglu()
     # ref = (torch.nn.functional.silu(a.to(torch.float32) @ b.t().to(torch.float32)) * a.to(torch.float32) @ b1.t().to(torch.float32)).to(torch.bfloat16)
     # test1 = (torch.cat((a, a), dim=1) @ torch.cat((b, b1), dim=1).t())
     convert_from_dlpack = lambda tensor: (
@@ -693,7 +700,7 @@ if __name__ == "__main__":
 
     if IS_SPEED:
         my_ms = do_bench(lambda: compiled_gemm(a_cute, b_cute, b1_cute, c_cute, current_stream))
-        other_ms = do_bench(torch_gemm)
+        other_ms = do_bench(torch_swiglu)
         print(f'{my_ms=}, {other_ms=} speedup={other_ms / my_ms}')
         my_flops, other_flops = get_tflops(my_ms), get_tflops(other_ms)
         print(f'{my_flops=}, {other_flops=}')

@@ -189,8 +189,10 @@ class GemmSM90:
         pipeline_init_wait()
 
         # Assign SMEM pointers
-        sA = storage.sA.get_tensor(a_smem_layout_staged.outer, swizzle=a_smem_layout_staged.inner)
-        sB = storage.sB.get_tensor(b_smem_layout_staged.outer, swizzle=b_smem_layout_staged.inner)
+        sA = self.get_smem_field(storage, 'sA', a_smem_layout_staged)
+        sB = self.get_smem_field(storage, 'sB', b_smem_layout_staged)
+        # sA = storage.sA.get_tensor(a_smem_layout_staged.outer, swizzle=a_smem_layout_staged.inner)
+        # sB = storage.sB.get_tensor(b_smem_layout_staged.outer, swizzle=b_smem_layout_staged.inner)
 
         # Pointer for epilogue
         sD = None
@@ -554,11 +556,20 @@ class GemmSM90:
         @cute.struct
         class SharedStorage:
             mainloop_pipeline_barriers: cute.struct.MemRange[cutlass.Int64, self.ab_stage * 2]
-            sA: cute.struct.Align[cute.struct.MemRange[self.a_dtype, cute.cosize(self.a_smem_layout_staged)], self.buffer_align_bytes]
-            sB: cute.struct.Align[cute.struct.MemRange[self.b_dtype, cute.cosize(self.b_smem_layout_staged)], self.buffer_align_bytes]
+            sA: self.memrange(self.a_dtype, self.a_smem_layout_staged, self.buffer_align_bytes)
+            sB: self.memrange(self.b_dtype, self.b_smem_layout_staged, self.buffer_align_bytes)
+            # sA: cute.struct.Align[cute.struct.MemRange[self.a_dtype, cute.cosize(self.a_smem_layout_staged)], self.buffer_align_bytes]
+            # sB: cute.struct.Align[cute.struct.MemRange[self.b_dtype, cute.cosize(self.b_smem_layout_staged)], self.buffer_align_bytes]
             sD: cute.struct.Align[cute.struct.MemRange[self.c_dtype, self.epi_smem_size], self.buffer_align_bytes]
 
         self.shared_storage = SharedStorage
+    
+    def memrange(self, dtype, smem_layout, align):
+        return cute.struct.Align[cute.struct.MemRange[dtype, cute.cosize(smem_layout)], align]
+    
+    def get_smem_field(self, storage, field_name, layout):
+        return getattr(storage, field_name).get_tensor(layout.outer, swizzle=layout.inner)
+        # sA = storage.sA.get_tensor(a_smem_layout_staged.outer, swizzle=a_smem_layout_staged.inner)
 
 if __name__ == "__main__":
     print('Starting...')
