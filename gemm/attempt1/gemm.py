@@ -100,7 +100,7 @@ class GemmSM90:
         self.epi_stage = epi_stage
 
         # These are set when we run __call__
-        self.a_dtype, self.b_dtype, self.c_dtype = None, None, None
+        self.dtype = cutlass.BFloat16
         self.a_layout, self.b_layout = None, None
         self.a_smem_layout_staged = None
         self.b_smem_layout_staged = None
@@ -143,8 +143,8 @@ class GemmSM90:
 
         # Convert cute.Tensors into TMA-compatible formats
         self.tma_ab_load_bytes = 0
-        tma_atom_a, tma_tensor_a = self._get_tma_load_and_tensors_incr_bytes(a, self.a_smem_layout_staged, (self.cta_tile_shape_mnk[0], self.cta_tile_shape_mnk[2]), self.mcast_ctas_a, self.a_dtype)
-        tma_atom_b, tma_tensor_b = self._get_tma_load_and_tensors_incr_bytes(b, self.b_smem_layout_staged, (self.cta_tile_shape_mnk[1], self.cta_tile_shape_mnk[2]), self.mcast_ctas_b, self.b_dtype)
+        tma_atom_a, tma_tensor_a = self._get_tma_load_and_tensors_incr_bytes(a, self.a_smem_layout_staged, (self.cta_tile_shape_mnk[0], self.cta_tile_shape_mnk[2]), self.mcast_ctas_a, self.dtype)
+        tma_atom_b, tma_tensor_b = self._get_tma_load_and_tensors_incr_bytes(b, self.b_smem_layout_staged, (self.cta_tile_shape_mnk[1], self.cta_tile_shape_mnk[2]), self.mcast_ctas_b, self.dtype)
 
         # Tile scheduler arguments and grid
         ts_args = self.get_tile_scheduler_args(a, b, c)
@@ -197,7 +197,7 @@ class GemmSM90:
         # Pointer for epilogue
         sD = None
         if cutlass.const_expr(self.reuse_ab):
-            sD_ptr = cute.recast_ptr(sA.iterator, epi_smem_layout.inner, dtype=self.c_dtype)
+            sD_ptr = cute.recast_ptr(sA.iterator, epi_smem_layout.inner, dtype=self.dtype)
             sD = cute.make_tensor(sD_ptr, epi_smem_layout.outer)
         else:
             sD = storage.sD.get_tensor(epi_smem_layout.outer, swizzle=epi_smem_layout.inner)
@@ -287,7 +287,7 @@ class GemmSM90:
                 self.c_layout.is_m_major_c(),
                 4,
             ),
-            self.c_dtype,
+            self.dtype,
         )
         tiled_copy_r2s = cute.make_tiled_copy_C_atom(copy_atom_C, tiled_mma)
 
@@ -336,9 +336,9 @@ class GemmSM90:
                 tRS_rD[epi_v] = tRS_rAcc[epi_idx * size_tRS_rD + epi_v]
             
             # Type conversion
-            tRS_rD_out = cute.make_rmem_tensor_like(tRS_rD_layout, self.c_dtype)
+            tRS_rD_out = cute.make_rmem_tensor_like(tRS_rD_layout, self.dtype)
             acc_vec = tRS_rD.load()
-            tRS_rD_out.store(acc_vec.to(self.c_dtype))
+            tRS_rD_out.store(acc_vec.to(self.dtype))
 
             epi_buffer = epi_idx % cute.size(tRS_sD, mode=[3])
             # R2S stmatrix
@@ -514,9 +514,7 @@ class GemmSM90:
     # Easy Population Helpers
     # -------------------------------------
     def populate_dtypes_and_layouts(self, a: cute.Tensor, b: cute.Tensor, c: cute.Tensor):
-        self.a_dtype = a.element_type
-        self.b_dtype = b.element_type
-        self.c_dtype = c.element_type
+        assert a.element_type == b.element_type == c.element_type == self.dtype
         self.a_layout = utils.LayoutEnum.from_tensor(a)
         self.b_layout = utils.LayoutEnum.from_tensor(b)
         self.c_layout = utils.LayoutEnum.from_tensor(c)
@@ -525,8 +523,8 @@ class GemmSM90:
     @cute.jit
     def populate_mma_atom(self):
         self.tiled_mma = sm90_utils.make_trivial_tiled_mma(
-            self.a_dtype,
-            self.b_dtype,
+            self.dtype,
+            self.dtype,
             self.a_layout.sm90_mma_major_mode(),
             self.b_layout.sm90_mma_major_mode(),
             self.acc_dtype,
@@ -539,14 +537,14 @@ class GemmSM90:
     
     def populate_smem_layouts(self):
         self.a_smem_layout_staged = sm90_utils.make_smem_layout_a(
-            self.a_layout, self.cta_tile_shape_mnk, self.a_dtype, self.ab_stage
+            self.a_layout, self.cta_tile_shape_mnk, self.dtype, self.ab_stage
         )
 
         self.b_smem_layout_staged = sm90_utils.make_smem_layout_b(
-            self.b_layout, self.cta_tile_shape_mnk, self.b_dtype, self.ab_stage
+            self.b_layout, self.cta_tile_shape_mnk, self.dtype, self.ab_stage
         )
 
-        self.epi_smem_layout_staged = make_smem_layout_epi(self.c_dtype, self.c_layout, self.epi_tile_mn, self.epi_stage)
+        self.epi_smem_layout_staged = make_smem_layout_epi(self.dtype, self.c_layout, self.epi_tile_mn, self.epi_stage)
 
         if not self.reuse_ab:
             self.epi_smem_size = cute.cosize(self.epi_smem_layout_staged)
@@ -556,11 +554,11 @@ class GemmSM90:
         @cute.struct
         class SharedStorage:
             mainloop_pipeline_barriers: cute.struct.MemRange[cutlass.Int64, self.ab_stage * 2]
-            sA: self.memrange(self.a_dtype, self.a_smem_layout_staged, self.buffer_align_bytes)
-            sB: self.memrange(self.b_dtype, self.b_smem_layout_staged, self.buffer_align_bytes)
+            sA: self.memrange(self.dtype, self.a_smem_layout_staged, self.buffer_align_bytes)
+            sB: self.memrange(self.dtype, self.b_smem_layout_staged, self.buffer_align_bytes)
             # sA: cute.struct.Align[cute.struct.MemRange[self.a_dtype, cute.cosize(self.a_smem_layout_staged)], self.buffer_align_bytes]
             # sB: cute.struct.Align[cute.struct.MemRange[self.b_dtype, cute.cosize(self.b_smem_layout_staged)], self.buffer_align_bytes]
-            sD: cute.struct.Align[cute.struct.MemRange[self.c_dtype, self.epi_smem_size], self.buffer_align_bytes]
+            sD: cute.struct.Align[cute.struct.MemRange[self.dtype, self.epi_smem_size], self.buffer_align_bytes]
 
         self.shared_storage = SharedStorage
     
