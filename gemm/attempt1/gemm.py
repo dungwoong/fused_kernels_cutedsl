@@ -149,7 +149,7 @@ class GemmSM90:
         self.tma_ab_load_bytes = _abytes + _bbytes
 
         # Tile scheduler arguments and grid
-        ts_args = self.get_tile_scheduler_args(a, b, c)
+        ts_args = self.get_tile_scheduler_args(c)
         ts_params = SimpleTileScheduler.to_underlying_arguments(ts_args)
         grid = SimpleTileScheduler.get_grid_shape(ts_params, self.max_active_clusters)
 
@@ -466,11 +466,11 @@ class GemmSM90:
             cta_layout_vmnk=cta_layout_vmnk,
         )
 
-    def get_tile_scheduler_args(self, mA: cute.Tensor, mB: cute.Tensor, mC: cute.Tensor):
+    def get_tile_scheduler_args(self, mC: cute.Tensor):
         batch_size = mC.shape[2] if cute.rank(mC.layout) == 3 else 1
         problem_shape_ntile_mnl = (
-            cute.ceil_div(mA.shape[0], self.cta_tile_shape_mnk[0]),
-            cute.ceil_div(mB.shape[0], self.cta_tile_shape_mnk[1]),
+            cute.ceil_div(mC.shape[0], self.cta_tile_shape_mnk[0]),
+            cute.ceil_div(mC.shape[1], self.cta_tile_shape_mnk[1]),
             batch_size,
         )
         tile_sched_args = SimpleTileSchedulerArguments(
