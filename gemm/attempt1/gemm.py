@@ -23,8 +23,9 @@ import cutlass.utils.hopper_helpers as sm90_utils
 from tile_scheduler import SimpleTileSchedulerArguments, SimpleTileScheduler, RasterOrder, get_max_active_clusters
 from cute_dsl_utils import ParamsBase
 from functools import partial
-from my_utils import tma_get_copy_fn, make_smem_layout_epi
+from my_utils import make_smem_layout_epi
 from my_runtime import shared, mma
+from cdsl_fn_utils import jit_cache, STREAM, convert_from_dlpack, make_fake_tensor
 
 THREADS_PER_WG = 128
 
@@ -585,6 +586,9 @@ if __name__ == "__main__":
     def get_tflops(time_ms):
         return (flops / (time_ms / 1e3)) / 1e12
 
+    dtype = cutlass.BFloat16
+    div = math.gcd(128 // dtype.width, k)
+    divn = math.gcd(128 // dtype.width, n)
     a = torch.randn((m, k), dtype=torch.bfloat16).to('cuda')
     b = torch.randn((n, k), dtype=torch.bfloat16).to('cuda')
     c = torch.empty((m, n), dtype=torch.bfloat16).to('cuda')
@@ -594,7 +598,7 @@ if __name__ == "__main__":
             mode=0, stride_order=(0, 1)
         )
     )
-    a_cute, b_cute, c_cute = [convert_from_dlpack(x) for x in (a, b, c)]
+    # a_cute, b_cute, c_cute = [convert_from_dlpack(x) for x in (a, b, c)]
     current_stream = cuda.CUstream(torch.cuda.current_stream().cuda_stream)
     gemm = GemmSM90(tile_shape_mn=(128, 256), 
                     epi_tile_mn=(128, 32),
@@ -603,8 +607,11 @@ if __name__ == "__main__":
                     ab_stage=3,
                     reuse_ab=True,
                     is_persistent=False)
-    compiled_gemm = cute.compile(gemm, a_cute, b_cute, c_cute, current_stream)
-    compiled_gemm(a_cute, b_cute, c_cute, current_stream)
+    a_c = make_fake_tensor(dtype, (m, k), div)
+    b_c = make_fake_tensor(dtype, (n, k), div)
+    c_c = make_fake_tensor(dtype, (m, n), divn)
+    compiled_gemm = cute.compile(gemm, a_c, b_c, c_c, current_stream, options='--enable-tvm-ffi')
+    compiled_gemm(a, b, c, current_stream)
     print('All close:', torch.allclose(ref, c))
     if IS_DEBUG:
         print(ref)
@@ -615,36 +622,17 @@ if __name__ == "__main__":
         print('n_incorrect :', n_incorrect)
         print('n_nonzero :', (c != 0).sum())
 
-    def profile_ms(op, repeats=30):
-
-        clear_cache = functools.partial(
-            runtime.driver.active.clear_cache,  # type: ignore[attr-defined]
-            runtime.driver.active.get_empty_cache_for_benchmark(),  # type: ignore[attr-defined]
-        )
-        clear_cache()
-
-        # warmup
-        op()
-        torch.cuda.synchronize()
-
-        start = [torch.cuda.Event(enable_timing=True) for _ in range(repeats)]
-        end = [torch.cuda.Event(enable_timing=True) for _ in range(repeats)]
-
-        for i in range(repeats):
-            clear_cache()
-            start[i].record()
-            op()
-            end[i].record()
-
-        torch.cuda.synchronize()
-        return statistics.median([s.elapsed_time(e) for s, e in zip(start, end)])
-
     @torch.compile
     def torch_gemm():
         return a @ b.t()
+    
+    def cdsl_func(a, b):
+        o = torch.empty(a.shape[0], b.shape[0], dtype=torch.bfloat16, device='cuda')
+        compiled_gemm(a, b, o, current_stream)
+        return o
 
     if IS_SPEED:
-        my_ms = do_bench(lambda: compiled_gemm(a_cute, b_cute, c_cute, current_stream))
+        my_ms = do_bench(lambda: cdsl_func(a, b))
         other_ms = do_bench(torch_gemm)
         print(f'{my_ms=}, {other_ms=}')
         my_flops, other_flops = get_tflops(my_ms), get_tflops(other_ms)
