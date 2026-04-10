@@ -25,6 +25,7 @@ from cute_dsl_utils import ParamsBase
 from functools import partial
 from my_utils import tma_get_copy_fn, make_smem_layout_epi
 from my_runtime import shared, mma
+from cdsl_fn_utils import jit_cache, STREAM, convert_from_dlpack, make_fake_tensor
 
 THREADS_PER_WG = 128
 
@@ -609,8 +610,11 @@ if __name__ == "__main__":
     IS_DEBUG = args.mode == 'debug'
     IS_SPEED = args.mode == 'speed'
 
-    m, n, k = 2048, 4096, 4096
+    dtype = cutlass.BFloat16
+    m, n, k = 65536, 4096, 8192
     flops = 2 * m * n * k
+    div = math.gcd(128 // dtype.width, k)
+    divn = math.gcd(128 // dtype.width, n)
 
     def get_tflops(time_ms):
         return (flops / (time_ms / 1e3)) / 1e12
@@ -653,8 +657,13 @@ if __name__ == "__main__":
                     reuse_ab=False,
                     is_persistent=True,
                     gemm_n_prologue=0) # I'm not sure why prologue gemms don't seem to do anything, maybe because we already use up a lot of registers? idk
-    compiled_gemm = cute.compile(gemm, a_cute, b_cute, b1_cute, c_cute, current_stream)
-    compiled_gemm(a_cute, b_cute, b1_cute, c_cute, current_stream)
+    x_c = make_fake_tensor(dtype, (m, k), div)
+    w_c = make_fake_tensor(dtype, (n, k), div)
+    v_c = make_fake_tensor(dtype, (n, k), div)
+    o_c = make_fake_tensor(dtype, (m, n), div)
+    compiled_gemm = cute.compile(gemm, x_c, w_c, v_c, o_c, current_stream, options='--enable-tvm-ffi')
+    # compiled_gemm(a_cute, b_cute, b1_cute, c_cute, current_stream)
+    compiled_gemm(a, b, b1, c, current_stream)
 
     if not IS_NCU:
         allclose = torch.allclose(ref, c, atol=1e-3, rtol=1e-3)
@@ -699,8 +708,14 @@ if __name__ == "__main__":
         torch.cuda.synchronize()
         return statistics.median([s.elapsed_time(e) for s, e in zip(start, end)])
 
+    def cdsl_func(x, w, v):
+        o = torch.empty(x.shape[0], w.shape[0], dtype=torch.bfloat16, device='cuda')
+        compiled_gemm(x, w, v, o, current_stream)
+        return o
+    
     if IS_SPEED:
-        my_ms = do_bench(lambda: compiled_gemm(a_cute, b_cute, b1_cute, c_cute, current_stream))
+        # my_ms = do_bench(lambda: compiled_gemm(a, b, b1, c, current_stream))
+        my_ms = do_bench(lambda: cdsl_func(a, b, b1))
         other_ms = do_bench(torch_swiglu)
         print(f'{my_ms=}, {other_ms=} speedup={other_ms / my_ms}')
         my_flops, other_flops = get_tflops(my_ms), get_tflops(other_ms)
