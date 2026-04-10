@@ -29,6 +29,15 @@ from cdsl_fn_utils import jit_cache, STREAM, convert_from_dlpack, make_fake_tens
 
 THREADS_PER_WG = 128
 
+def validate(expected, out):
+    expected = expected.float()
+    out = out.float()
+    diff = (out - expected).abs()
+    max_abs = diff.max().item()
+    max_rel = (diff / (expected.abs().clamp(min=1.0))).max().item()
+    mean_rel   = (diff / (expected.abs().clamp(min=1.0))).mean().item()
+    return max_abs, max_rel, mean_rel
+
 @cute.jit
 def print0(x):
     tidx, _, _ = cute.arch.thread_idx()
@@ -55,7 +64,7 @@ class GemmSM90:
     def __init__(
         self,
         tile_shape_mn: Tuple[int, int],
-        lora_dim: int,
+        lora_dim: int, # this could be decided in __call__ but ok
         epi_tile_mn: Tuple[int, int],
         cluster_shape_mnk: Tuple[int, int, int],
         atom_layout_mn: Tuple[int, int],
@@ -153,8 +162,8 @@ class GemmSM90:
 
         # xA actually multicasts like an a matrix
         # lora_b multicasts like the b matrix
-        tma_atom_lxA, tma_tensor_lxA, _lxAbytes = self._get_tma_load_and_tensors_incr_bytes(lora_xA, self.lxA_layout, (self.cta_lora_tile_shape[0], self.cta_lora_tile_shape[2]), self.mcast_ctas_a, self.dtype)
-        tma_atom_lB, tma_tensor_lB, _lBbytes = self._get_tma_load_and_tensors_incr_bytes(lora_B, self.lB_layout, (self.cta_lora_tile_shape[1], self.cta_lora_tile_shape[2]), self.mcast_ctas_b, self.dtype)
+        tma_atom_lxA, tma_tensor_lxA, _lxAbytes = self._get_tma_load_and_tensors_incr_bytes(lora_xA, self.lora_xA_smem_layout, (self.cta_lora_tile_shape[0], self.cta_lora_tile_shape[2]), self.mcast_ctas_a, self.dtype)
+        tma_atom_lB, tma_tensor_lB, _lBbytes = self._get_tma_load_and_tensors_incr_bytes(lora_B, self.lora_b_smem_layout, (self.cta_lora_tile_shape[1], self.cta_lora_tile_shape[2]), self.mcast_ctas_b, self.dtype)
         self.tma_lab_load_bytes = _lxAbytes + _lBbytes
 
         # Tile scheduler arguments and grid
@@ -645,6 +654,7 @@ if __name__ == "__main__":
     IS_SPEED = args.mode == 'speed'
 
     m, n, k = 4096, 4096, 4096
+    lora_dim = 16
     flops = 2 * m * n * k
 
     def get_tflops(time_ms):
@@ -653,10 +663,24 @@ if __name__ == "__main__":
     dtype = cutlass.BFloat16
     div = math.gcd(128 // dtype.width, k)
     divn = math.gcd(128 // dtype.width, n)
+    div_lora = math.gcd(128 // dtype.width, lora_dim)
+
+    # kaiming: sqrt(2/n), n is number of inputs
+    multiplier = math.sqrt(2/k)
     a = torch.randn((m, k), dtype=torch.bfloat16).to('cuda')
-    b = torch.randn((n, k), dtype=torch.bfloat16).to('cuda')
+    b = torch.randn((n, k), dtype=torch.bfloat16).mul(multiplier).to('cuda')
     c = torch.empty((m, n), dtype=torch.bfloat16).to('cuda')
-    ref = a @ b.t()
+    
+    lA = torch.randn((lora_dim, k), dtype=torch.bfloat16).mul(multiplier).to('cuda')
+    # lxA = torch.randn((m, lora_dim), dtype=torch.bfloat16).to('cuda')
+    lB = torch.randn((n, lora_dim), dtype=torch.bfloat16).mul(multiplier).to('cuda')
+
+    @torch.compile
+    def torch_lora():
+        # this is as fast as we can go since we can't fuse in
+        return (a @ b.t()) + (a @ lA.t() @ lB.t())
+    
+    ref = torch_lora()
     convert_from_dlpack = lambda tensor: (
         from_dlpack(tensor.detach(), assumed_align=16).mark_compact_shape_dynamic(
             mode=0, stride_order=(0, 1)
@@ -664,7 +688,8 @@ if __name__ == "__main__":
     )
     # a_cute, b_cute, c_cute = [convert_from_dlpack(x) for x in (a, b, c)]
     current_stream = cuda.CUstream(torch.cuda.current_stream().cuda_stream)
-    gemm = GemmSM90(tile_shape_mn=(128, 256), 
+    gemm = GemmSM90(tile_shape_mn=(128, 256),
+                    lora_dim=lora_dim,
                     epi_tile_mn=(128, 32),
                     cluster_shape_mnk=(2, 1, 1), 
                     atom_layout_mn=(2, 1),
@@ -674,30 +699,36 @@ if __name__ == "__main__":
     a_c = make_fake_tensor(dtype, (m, k), div)
     b_c = make_fake_tensor(dtype, (n, k), div)
     c_c = make_fake_tensor(dtype, (m, n), divn)
-    compiled_gemm = cute.compile(gemm, a_c, b_c, c_c, current_stream, options='--enable-tvm-ffi')
-    compiled_gemm(a, b, c, current_stream)
-    print('All close:', torch.allclose(ref, c))
+    lxA_c = make_fake_tensor(dtype, (m, lora_dim), div_lora)
+    lB_c = make_fake_tensor(dtype, (n, lora_dim), div_lora)
+    compiled_gemm = cute.compile(gemm, a_c, b_c, lxA_c, lB_c, c_c, current_stream, options='--enable-tvm-ffi')
+
+    def cdsl_func(a, b, la, lb):
+        o = torch.empty(a.shape[0], b.shape[0], dtype=torch.bfloat16, device='cuda')
+        lxa = a @ lA.t()
+        compiled_gemm(a, b, lxa, lb, o, current_stream)
+        return o
+    
+    # compiled_gemm(a, b, lxA, lB, c, current_stream)
+    c = cdsl_func(a, b, lA, lB)
+    if not IS_NCU:
+        print('All close:', torch.allclose(ref, c, atol=1e-2, rtol=1e-2))
+        max_abs, max_rel, mean_rel = validate(ref, c)
+        print(f'{max_abs=}, {max_rel=}, {mean_rel=}')
+    
     if IS_DEBUG:
         print(ref)
         print(c)
 
     if IS_DEBUG:
-        n_incorrect = c.numel() - ((c - ref).abs() < 0.001).sum()
+        n_incorrect = c.numel() - ((c - ref).abs() < 0.1).sum()
         print('n_incorrect :', n_incorrect)
         print('n_nonzero :', (c != 0).sum())
 
-    @torch.compile
-    def torch_gemm():
-        return a @ b.t()
-    
-    def cdsl_func(a, b):
-        o = torch.empty(a.shape[0], b.shape[0], dtype=torch.bfloat16, device='cuda')
-        compiled_gemm(a, b, o, current_stream)
-        return o
-
     if IS_SPEED:
-        my_ms = do_bench(lambda: cdsl_func(a, b))
-        other_ms = do_bench(torch_gemm)
-        print(f'{my_ms=}, {other_ms=}')
+        my_ms = do_bench(lambda: cdsl_func(a, b, lA, lB))
+        other_ms = do_bench(torch_lora)
+        speedup = other_ms / my_ms
+        print(f'{my_ms=}, {other_ms=} {speedup=}')
         my_flops, other_flops = get_tflops(my_ms), get_tflops(other_ms)
         print(f'{my_flops=}, {other_flops=}')
