@@ -143,8 +143,9 @@ class GemmSM90:
 
         # Convert cute.Tensors into TMA-compatible formats
         self.tma_ab_load_bytes = 0
-        tma_atom_a, tma_tensor_a = self._get_tma_load_and_tensors_incr_bytes(a, self.a_smem_layout_staged, (self.cta_tile_shape_mnk[0], self.cta_tile_shape_mnk[2]), self.mcast_ctas_a, self.dtype)
-        tma_atom_b, tma_tensor_b = self._get_tma_load_and_tensors_incr_bytes(b, self.b_smem_layout_staged, (self.cta_tile_shape_mnk[1], self.cta_tile_shape_mnk[2]), self.mcast_ctas_b, self.dtype)
+        tma_atom_a, tma_tensor_a, _abytes = self._get_tma_load_and_tensors_incr_bytes(a, self.a_smem_layout_staged, (self.cta_tile_shape_mnk[0], self.cta_tile_shape_mnk[2]), self.mcast_ctas_a, self.dtype)
+        tma_atom_b, tma_tensor_b, _bbytes = self._get_tma_load_and_tensors_incr_bytes(b, self.b_smem_layout_staged, (self.cta_tile_shape_mnk[1], self.cta_tile_shape_mnk[2]), self.mcast_ctas_b, self.dtype)
+        self.tma_ab_load_bytes = _abytes + _bbytes
 
         # Tile scheduler arguments and grid
         ts_args = self.get_tile_scheduler_args(a, b, c)
@@ -432,18 +433,18 @@ class GemmSM90:
 
     # More runtime stuff
     # -----------------------------
-    def tma_partition(self, cluster_coord, tma_atom: cute.CopyAtom, sMatrix: cute.Tensor, gMatrix: cute.Tensor):
-        s_tma = cute.group_modes(sMatrix, 0, 2)
-        g_tma = cute.group_modes(gMatrix, 0, 2)
+    # def tma_partition(self, cluster_coord, tma_atom: cute.CopyAtom, sMatrix: cute.Tensor, gMatrix: cute.Tensor):
+    #     s_tma = cute.group_modes(sMatrix, 0, 2)
+    #     g_tma = cute.group_modes(gMatrix, 0, 2)
 
-        # (TMA, pipe_stages) and (TMA, k)
-        shared_layout, global_layout = cute.nvgpu.cpasync.tma_partition(
-            tma_atom,
-            cluster_coord,
-            s_tma,
-            g_tma,
-        )
-        return shared_layout, global_layout
+    #     # (TMA, pipe_stages) and (TMA, k)
+    #     shared_layout, global_layout = cute.nvgpu.cpasync.tma_partition(
+    #         tma_atom,
+    #         cluster_coord,
+    #         s_tma,
+    #         g_tma,
+    #     )
+    #     return shared_layout, global_layout
 
     @cute.jit
     def make_ab_pipeline(self, mbar_ptr: cute.Pointer, cta_layout_vmnk: cute.Layout):
@@ -491,8 +492,8 @@ class GemmSM90:
             smem_tile, # CTA tiler
             num_multicast=mcast_dim
         )
-        self.tma_ab_load_bytes += cute.size_in_bytes(dtype, smem_layout)
-        return tma_atom, tma_tensor
+        # self.tma_ab_load_bytes += cute.size_in_bytes(dtype, smem_layout)
+        return tma_atom, tma_tensor, cute.size_in_bytes(dtype, smem_layout)
     
     @staticmethod
     def _get_tma_epi_atoms_and_tensors(
@@ -551,23 +552,22 @@ class GemmSM90:
     
     @cute.jit
     def populate_shared_storage(self):
-        @cute.struct
-        class SharedStorage:
-            mainloop_pipeline_barriers: cute.struct.MemRange[cutlass.Int64, self.ab_stage * 2]
-            sA: self.memrange(self.dtype, self.a_smem_layout_staged, self.buffer_align_bytes)
-            sB: self.memrange(self.dtype, self.b_smem_layout_staged, self.buffer_align_bytes)
-            # sA: cute.struct.Align[cute.struct.MemRange[self.a_dtype, cute.cosize(self.a_smem_layout_staged)], self.buffer_align_bytes]
-            # sB: cute.struct.Align[cute.struct.MemRange[self.b_dtype, cute.cosize(self.b_smem_layout_staged)], self.buffer_align_bytes]
-            sD: cute.struct.Align[cute.struct.MemRange[self.dtype, self.epi_smem_size], self.buffer_align_bytes]
+        SharedStorage = type("SharedStorage", (), dict())
+        SharedStorage.__annotations__['mainloop_pipeline_barriers'] = cute.struct.MemRange[cutlass.Int64, self.ab_stage * 2]
+        self.add_memrange(SharedStorage, 'sA', self.dtype, self.a_smem_layout_staged, self.buffer_align_bytes)
+        self.add_memrange(SharedStorage, 'sB', self.dtype, self.b_smem_layout_staged, self.buffer_align_bytes)
+        SharedStorage.__annotations__['sD'] = cute.struct.Align[cute.struct.MemRange[self.dtype, self.epi_smem_size], self.buffer_align_bytes]
 
-        self.shared_storage = SharedStorage
+        self.shared_storage = cute.struct(SharedStorage)
     
     def memrange(self, dtype, smem_layout, align):
         return cute.struct.Align[cute.struct.MemRange[dtype, cute.cosize(smem_layout)], align]
     
+    def add_memrange(self, ss, name_field, dtype, smem_layout, align):
+        ss.__annotations__[name_field] = cute.struct.Align[cute.struct.MemRange[dtype, cute.cosize(smem_layout)], align]
+    
     def get_smem_field(self, storage, field_name, layout):
         return getattr(storage, field_name).get_tensor(layout.outer, swizzle=layout.inner)
-        # sA = storage.sA.get_tensor(a_smem_layout_staged.outer, swizzle=a_smem_layout_staged.inner)
 
 if __name__ == "__main__":
     print('Starting...')
