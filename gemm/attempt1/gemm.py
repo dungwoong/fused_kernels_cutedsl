@@ -580,7 +580,7 @@ if __name__ == "__main__":
     IS_DEBUG = args.mode == 'debug'
     IS_SPEED = args.mode == 'speed'
 
-    m, n, k = 4096, 4096, 4096
+    m, n, k = 8192, 4096, 4096
     flops = 2 * m * n * k
 
     def get_tflops(time_ms):
