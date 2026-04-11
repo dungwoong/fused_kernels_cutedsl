@@ -12,3 +12,6 @@
 # Things to modify
 - Add a separate pipeline for V because we don't need to wait for it with W
 - We could try something like holding X in registers so we don't need to re-read it from SMEM. Should consult Nsight compute for this though, it might already be doing it(?)
+
+- Separate pipeline for V didn't really work. Tensor cores are already full so separate pipeline doesn't do much, it can actually slow things down since more barrier synchronization.
+- If we have high arithmetic intensity, we could go with a ping-pong strategy to sacrifice some arithmetic intensity for epi/mainloop overlap

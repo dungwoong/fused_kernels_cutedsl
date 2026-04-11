@@ -580,7 +580,7 @@ if __name__ == "__main__":
     IS_DEBUG = args.mode == 'debug'
     IS_SPEED = args.mode == 'speed'
 
-    m, n, k = 8192, 4096, 4096
+    m, n, k = 65536, 4096, 8192
     flops = 2 * m * n * k
 
     def get_tflops(time_ms):
@@ -605,14 +605,15 @@ if __name__ == "__main__":
                     cluster_shape_mnk=(2, 1, 1), 
                     atom_layout_mn=(2, 1),
                     ab_stage=3,
-                    reuse_ab=True,
-                    is_persistent=False)
+                    reuse_ab=False,
+                    is_persistent=True)
     a_c = make_fake_tensor(dtype, (m, k), div)
     b_c = make_fake_tensor(dtype, (n, k), div)
     c_c = make_fake_tensor(dtype, (m, n), divn)
     compiled_gemm = cute.compile(gemm, a_c, b_c, c_c, current_stream, options='--enable-tvm-ffi')
     compiled_gemm(a, b, c, current_stream)
-    print('All close:', torch.allclose(ref, c))
+    if not IS_NCU:
+        print('All close:', torch.allclose(ref, c))
     if IS_DEBUG:
         print(ref)
         print(c)
