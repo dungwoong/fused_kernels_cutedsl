@@ -675,7 +675,7 @@ if __name__ == "__main__":
     # lxA = torch.randn((m, lora_dim), dtype=torch.bfloat16).to('cuda')
     lB = torch.randn((n, lora_dim), dtype=torch.bfloat16).mul(multiplier).to('cuda')
 
-    @torch.compile
+    # @torch.compile
     def torch_lora():
         # this is as fast as we can go since we can't fuse in
         return (a @ b.t()) + (a @ lA.t() @ lB.t())

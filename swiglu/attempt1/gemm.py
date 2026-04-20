@@ -609,7 +609,7 @@ if __name__ == "__main__":
     IS_DEBUG = args.mode == 'debug'
     IS_SPEED = args.mode == 'speed'
 
-    m, n, k = 2048, 4096, 4096
+    m, n, k = 4096, 4096, 4096
     flops = 2 * m * n * k
 
     def get_tflops(time_ms):
@@ -623,13 +623,13 @@ if __name__ == "__main__":
     c = torch.empty((m, n), dtype=torch.bfloat16).mul(mul_factor).to('cuda')
     bb1 = torch.cat((b, b1), dim=0) # 2n, k
 
-    @torch.compile
+    # @torch.compile
     def torch_gemm():
         in1 = a @ b.t()
         in2 = a @ b1.t()
         return torch.nn.functional.silu(in1) * in2
     
-    @torch.compile
+    # @torch.compile
     def torch_swiglu():
         o = a @ bb1.t() # m, 2n
         o1, o2 = o.chunk(2, dim=1)
