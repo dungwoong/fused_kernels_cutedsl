@@ -653,7 +653,7 @@ if __name__ == "__main__":
     IS_DEBUG = args.mode == 'debug'
     IS_SPEED = args.mode == 'speed'
 
-    m, n, k = 4096, 4096, 4096
+    m, n, k = 16384, 16384, 16384
     lora_dim = 16
     flops = 2 * m * n * k
 

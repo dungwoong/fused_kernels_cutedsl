@@ -76,6 +76,8 @@ def causal_mask(thr_mma: cute.TiledMma, gemm_acc: cute.Tensor, tile_m: cutlass.I
     # you can only do this because their cute ir has partitioning for MMA
     coords = reshape_acc_to_mn(thr_mma.partition_C(coords_))
 
+    print('gemm_acc:',gemm_acc)
+    print('gemm_acc_mn:', gemm_acc_mn)
     """
     Logic:
     - start row is idx_m * tile_n
@@ -91,6 +93,6 @@ def causal_mask(thr_mma: cute.TiledMma, gemm_acc: cute.Tensor, tile_m: cutlass.I
         for c in cutlass.range(cute.size(coords.shape[1]), unroll_full=True):
             gemm_acc_mn[r, c] = (
                 val
-                if coords[0, c][1] >= col_limit_right
+                if coords[0, c][1] > col_limit_right
                 else gemm_acc_mn[r, c]
             )

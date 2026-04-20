@@ -263,7 +263,7 @@ class GemmSM90:
                 # you have to return it
                 ab_consumer_state, tiled_mma = self.consume_mainloop(k_iters, tiled_mma, accumulators, ab_pipeline, ab_consumer_state, tCrA, tCrB, tidx, sA, sB)
 
-                causal_mask(tiled_mma.get_slice(tidx), accumulators, self.cta_tile_shape_mnk[0], self.cta_tile_shape_mnk[1], tile_coord_mnk[0], tile_coord_mnk[1], 0)
+                causal_mask(tiled_mma.get_slice(tidx), accumulators, self.cta_tile_shape_mnk[0], self.cta_tile_shape_mnk[1], tile_coord_mnk[0], tile_coord_mnk[1], cutlass.Float32(0))
 
                 # Epilogue ##################################################
                 self.epilogue(tiled_mma, epi_mC, epi_copy, sD, accumulators, tile_coord_mnk, tidx, warp_idx)
@@ -596,7 +596,7 @@ if __name__ == "__main__":
     a = torch.randn((m, k), dtype=torch.bfloat16).to('cuda')
     b = torch.randn((n, k), dtype=torch.bfloat16).to('cuda')
     c = torch.empty((m, n), dtype=torch.bfloat16).to('cuda')
-    ref = a @ b.t()
+    ref = torch.tril(a @ b.t())
     convert_from_dlpack = lambda tensor: (
         from_dlpack(tensor.detach(), assumed_align=16).mark_compact_shape_dynamic(
             mode=0, stride_order=(0, 1)
@@ -619,7 +619,7 @@ if __name__ == "__main__":
     if not IS_NCU:
         print('All close:', torch.allclose(ref, c))
     if IS_DEBUG:
-        print(ref)
+        # print(ref)
         print(c)
 
     if IS_DEBUG:

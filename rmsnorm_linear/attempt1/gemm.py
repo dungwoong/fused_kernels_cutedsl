@@ -279,6 +279,8 @@ class GemmSM90:
             )
             a_regs_mma = cute.make_rmem_tensor(s2r_r_shape, self.a_dtype)
             a_regs = thr_copy_s2r.retile(a_regs_mma) # retiling is important!
+            print('a_regs:', a_regs)
+            print('a_regs_mma:', a_regs_mma)
 
             # Sum reduction
             # the sum works but need to cast
@@ -468,7 +470,7 @@ class GemmSM90:
         for k_tile in cutlass.range(0, k_iters, unroll=1, unroll_full=False):
             pipe.consumer_wait(read_state, peek_ab_full_status)
             cute.copy(tiled_copy_s2r, s2r_sA[None, None, None, read_state.index], a_regs[None, None, None])
-            
+
             cute.nvgpu.warpgroup.fence()
             for k_block_idx in cutlass.range(num_k_blocks, unroll_full=True):
                 k_block_coord = (None, None, k_block_idx, read_state.index)
