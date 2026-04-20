@@ -1,0 +1,3 @@
+- take flash attention mask, only consider `mask_causal`
+- cute `make_identity_tensor` is helpful e.g. `tensor = make_identity_tensor((3,2))  # [(0,0),(1,0),(2,0),(0,1),(1,1),(2,1)]`
+- so the idea is make identity tensor, use the tiled mma to make it into the right shape, and then mask using it
