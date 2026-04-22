@@ -14,7 +14,9 @@ B: 128x128
 
 compute (BtAt)t = m128n16k128 --> (16,128)
 
-we'll try to stmatrix transposed
+stmatrix transposed
+- need the opposite SMEM layout, and transpose the view since the stmatrix will still expect the original layout dims
+- if you get problems with alignment, that means your SMEM layout is wrong
 """
 
 EPI_BAR = 1
@@ -87,20 +89,31 @@ class Kernel:
         SharedStorage = type("SharedStorage", (), dict())
         SharedStorage.__annotations__['As_ptr'] = shared.memrange(self.dtype, As_layout, 1024)
         SharedStorage.__annotations__['Bs_ptr'] = shared.memrange(self.dtype, Bs_layout, 1024)
-        SharedStorage.__annotations__['epi_ptr'] = shared.memrange(self.dtype, epi_layout, 1024)
-        SharedStorage.__annotations__['pipe_ptr'] = cute.struct.MemRange[cutlass.Int64, self.stages * 2]
-        s_alloc = cutlass.utils.SmemAllocator()
-        smem = s_alloc.allocate(cute.struct(SharedStorage))
+        # SharedStorage.__annotations__['epi_ptr'] = shared.memrange(self.dtype, epi_layout, 1024)
+        SharedStorage_t = cute.struct(SharedStorage)
 
-        As = shared.smem_get_tensor(smem, 'As_ptr', As_layout)
-        Bs = shared.smem_get_tensor(smem, 'Bs_ptr', Bs_layout)
-        Cs = shared.smem_get_tensor(smem, 'epi_ptr', epi_layout)
+        SS_epi = type("SS_epi", (), dict())
+        SS_epi.__annotations__["epi_ptr"] = shared.memrange(self.dtype, epi_layout, 1024)
+        SS_epi_t = cute.struct(SS_epi)
+
+        SS_barriers = type("SS_Barrier", (), dict())
+        SS_barriers.__annotations__['pipe_ptr'] = cute.struct.MemRange[cutlass.Int64, self.stages * 2]
+        s_alloc = cutlass.utils.SmemAllocator()
+        smem = s_alloc.allocate(
+            max(SharedStorage_t.size_in_bytes(), SS_epi_t.size_in_bytes()),
+            byte_alignment=1024 # we can automatically calculate this later
+            )
+        smem_bars = s_alloc.allocate(cute.struct(SS_barriers))
+
+        As = shared.smem_get_tensor(SharedStorage_t(smem), 'As_ptr', As_layout)
+        Bs = shared.smem_get_tensor(SharedStorage_t(smem), 'Bs_ptr', Bs_layout)
+        Cs = shared.smem_get_tensor(SS_epi_t(smem), 'epi_ptr', epi_layout)
 
 
         a_bytes = cute.size_in_bytes(cutlass.BFloat16, cute.select(As_layout, mode=[0, 1]))
         b_bytes = cute.size_in_bytes(cutlass.BFloat16, cute.select(Bs_layout, mode=[0, 1]))
         pipe = my_pipeline.make_tma_pipeline(
-            smem.pipe_ptr.data_ptr(),
+            smem_bars.pipe_ptr.data_ptr(),
             self.stages,
             self.consumer_warps,
             num_bytes=a_bytes + b_bytes
