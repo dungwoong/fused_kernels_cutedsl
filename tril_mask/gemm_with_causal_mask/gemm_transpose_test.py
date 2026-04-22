@@ -56,7 +56,7 @@ class Kernel:
         B_g2s_atom, B_g2s_tensor = shared.get_tma_tensor_and_atom(B, Bs_layout, self.tile_m, self.tile_k)
         C_s2g_atom, C_s2g_tensor = get_epi_tensor_atom(C, epi_layout, (self.tile_m, self.tile_n))
 
-        self.kernel(A_g2s_atom, A_g2s_tensor, B_g2s_atom, B_g2s_tensor, C_s2g_atom, C_s2g_tensor, tiled_gemm, As_layout, Bs_layout).launch(grid=[1, 1, 1], block=[(self.consumer_wgs + 1) * 128])
+        self.kernel(A_g2s_atom, A_g2s_tensor, B_g2s_atom, B_g2s_tensor, C_s2g_atom, C_s2g_tensor, epi_layout, tiled_gemm, As_layout, Bs_layout).launch(grid=[1, 1, 1], block=[(self.consumer_wgs + 1) * 128])
     
     @cute.kernel
     def kernel(self, A_g2s_atom: cute.CopyAtom, A_g2s_tensor: cute.Tensor, B_g2s_atom: cute.CopyAtom, B_g2s_tensor: cute.Tensor, C_s2g_atom: cute.CopyAtom, C_s2g_tensor: cute.Tensor, epi_layout: cute.ComposedLayout, tiled_gemm: cute.TiledMma, As_layout: cute.ComposedLayout, Bs_layout: cute.ComposedLayout):
@@ -74,7 +74,7 @@ class Kernel:
 
         As = shared.smem_get_tensor(smem, 'As_ptr', As_layout)
         Bs = shared.smem_get_tensor(smem, 'Bs_ptr', Bs_layout)
-        Cs = shared.smem_get_tensor(smem, 'Cs_ptr', epi_layout)
+        Cs = shared.smem_get_tensor(smem, 'epi_ptr', epi_layout)
 
         n_bytes = (
             cute.size_in_bytes(cutlass.BFloat16, cute.select(As_layout, mode=[0, 1])) + 
@@ -108,8 +108,8 @@ class Kernel:
             thr_copy_r2s = cute.make_tiled_copy_C(copy_atom_C, tiled_gemm).get_slice(tidx)
             # for now, let's say we're computing AtBt
             r2s_s = thr_copy_r2s.partition_D(Cs)
-            r2s_r = thr_copy_r2s.retile(acc)
-            cute.copy(copy_atom_C, r2s_r, r2s_s)
+            r2s_r = thr_copy_r2s.retile(rO)
+            cute.copy(copy_atom_C, r2s_r, r2s_s[None, None, None, 0])
             # cute.arch.fence_proxy(cute.arch.ProxyKind.async_shared, space=cute.arch.SharedSpace.shared_cta)
             # cute.arch.barrier_arrive(barrier_id=EPI_BAR, number_of_threads=self.consumer_warps*32)
 
