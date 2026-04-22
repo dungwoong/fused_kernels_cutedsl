@@ -104,14 +104,25 @@ class Kernel:
             rO = cute.make_fragment_like(acc, self.dtype)
             rO.store(acc.load().to(self.dtype))
 
+            Cs_slice = Cs[None, None, 0]
             copy_atom_C = my_utils.get_smem_store_atom(90, self.dtype, False)
             thr_copy_r2s = cute.make_tiled_copy_C(copy_atom_C, tiled_gemm).get_slice(tidx)
             # for now, let's say we're computing AtBt
-            r2s_s = thr_copy_r2s.partition_D(Cs)
+            r2s_s = thr_copy_r2s.partition_D(Cs_slice)
             r2s_r = thr_copy_r2s.retile(rO)
-            cute.copy(copy_atom_C, r2s_r, r2s_s[None, None, None, 0])
-            # cute.arch.fence_proxy(cute.arch.ProxyKind.async_shared, space=cute.arch.SharedSpace.shared_cta)
-            # cute.arch.barrier_arrive(barrier_id=EPI_BAR, number_of_threads=self.consumer_warps*32)
+            cute.copy(copy_atom_C, r2s_r, r2s_s)
+            cute.arch.fence_proxy(cute.arch.ProxyKind.async_shared, space=cute.arch.SharedSpace.shared_cta)
+            cute.arch.barrier_arrive(barrier_id=EPI_BAR, number_of_threads=(self.consumer_warps*32) + 32)
+
+            gO = cute.local_tile(C_s2g_tensor, (self.tile_m, self.tile_n), (bidy, bidx))
+            store_O, _, _ = my_utils.tma_get_copy_fn(
+                C_s2g_atom, 0, cute.make_layout(1), Cs_slice, gO, single_stage=True
+            )
+            if warp_idx == 0:
+                cute.arch.barrier(barrier_id=EPI_BAR, number_of_threads=(self.consumer_warps*32) + 32)
+                store_O()
+                cute.arch.cp_async_bulk_commit_group()
+                cute.arch.cp_async_bulk_wait_group(0, read=True)
 
         if (warp_idx >= self.consumer_warps): # PRODUCER
             cute.arch.setmaxregister_decrease(self.producer_regs)
