@@ -28,6 +28,15 @@ def get_smem_struct(fields):
     return cute.struct(cls)  # maybe we can cute.struct later
 
 
+def smem_get_tensor(storage, field_name, layout):
+    # sA = storage.sA.get_tensor(a_smem_layout_staged.outer, swizzle=a_smem_layout_staged.inner)
+    return getattr(storage, field_name).get_tensor(layout.outer, swizzle=layout.inner)
+
+
+def memrange(dtype, smem_layout, align):
+    return cute.struct.Align[cute.struct.MemRange[dtype, cute.cosize(smem_layout)], align]
+
+
 def get_tma_tensor_and_atom(tG, shared_layout, rows, cols):
     return cute.nvgpu.cpasync.make_tiled_tma_atom(
         cute.nvgpu.cpasync.CopyBulkTensorTileG2SOp(),
@@ -76,19 +85,14 @@ def tma_copy(
     src_col: int,
     pipe: cutlass.pipeline.PipelineAsync,
     state: cutlass.pipeline.PipelineState,
-    cta_coord: cute.Coord=0,
-    cta_layout: cute.Layout=None,
-    mcast_mask: any=0,
 ):
-    if cta_layout is None:
-        cta_layout = cute.make_layout((1, 1))
     gT = cute.local_tile(tma_tensor, (tile_m, tile_n), (None, None))
     load, _, _ = tma_get_copy_fn(
         tma_atom,
-        cta_coord,
-        cta_layout,
+        0,
+        cute.make_layout((1, 1)),
         gT,
         s_tensor,
     )
     # return load
-    load(src_row, src_col, state.index, tma_bar_ptr=pipe.producer_get_barrier(state), mcast_mask=mcast_mask)
+    load(src_row, src_col, state.index, tma_bar_ptr=pipe.producer_get_barrier(state))

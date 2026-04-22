@@ -24,7 +24,7 @@ from tile_scheduler import SimpleTileSchedulerArguments, SimpleTileScheduler, Ra
 from cute_dsl_utils import ParamsBase
 from functools import partial
 from my_utils import make_smem_layout_epi
-from my_runtime import shared, mma
+from my_runtime import shared, mma, pipeline as my_pipeline
 from cdsl_fn_utils import jit_cache, STREAM, convert_from_dlpack, make_fake_tensor
 
 THREADS_PER_WG = 128
@@ -50,6 +50,116 @@ def printwg(x):
     else:
         if tidx%128 == 0 and bidx == 0 and bidy == 0 and bidz == 0:
             cute.printf(x)
+
+
+class LinAttn1SM90:
+    """
+    - Assume everything is divisible (shape // chunk // mma_k)
+
+    First iteration:
+    - no k split, you just do work in some head and batch so it's pretty straightforward for now
+    - no multicasting, tile size is small to begin with
+    - gemm k = 64
+    """
+    def __init__(
+            self,
+            hdimk: int, # these dictate tile shape
+            hdimv: int,
+            chunk_size_k: int, # how often to save
+            stages: int=2,
+            ):
+        self.dtype = cutlass.BFloat16
+        self.acc_dtype = cutlass.Float32
+        self.tile_mnk = (hdimk, hdimv, 64)
+        self.tile_m, self.tile_n, self.tile_k = self.tile_mnk
+        self.stages = stages
+        assert chunk_size_k % self.tile_mnk[2] == 0, 'Chunk not divisible'
+        self.chunk_nsteps = chunk_size_k // self.tile_mnk[2] # save this many steps
+        self.num_mma_wgs = None
+        self.num_threads = None
+
+        self.num_mma_regs, self.num_producer_regs = 232, 40
+
+    def __call__(self, k: cute.Tensor, v: cute.Tensor, gamma: cute.Tensor):
+        Ks_layout = shared.get_smem_layout_row_major(self.dtype, self.tile_m, self.tile_k, self.stages)
+        Vs_layout = shared.get_smem_layout_row_major(self.dtype, self.tile_n, self.tile_k, self.stages)
+        
+        # vertical stacking
+        tiled_gemm = mma.get_tiled_mma(self.dtype, True, True, self.acc_dtype, self.tile_m, self.tile_n)
+        mma_threads = tiled_gemm.size
+        self.num_mma_wgs = mma_threads / THREADS_PER_WG
+        self.num_threads = int((self.num_mma_wgs + 1) * THREADS_PER_WG)
+
+        scheduler_params = ...
+        scheduler_grid = ... # TileSchedulerCls.get_grid()
+        # TODO is min blocks per mp fine even if we don't have enough blocks for all MPs?
+        self.kernel(k, v, gamma, tiled_gemm, Ks_layout, Vs_layout, scheduler_params).launch(grid=scheduler_grid, block=[self.num_threads, 1, 1], min_blocks_per_mp=1)
+
+    def kernel(self, k: cute.Tensor, v: cute.Tensor, gamma: cute.Tensor, tiled_gemm: cute.TiledMma, Ks_layout, Vs_layout, scheduler_params):
+        """
+        load my gamma, multiply by log2(e)
+        for k - (chunk_size_k): # TODO double check
+            if (k % self.chunk_nsteps) == 0: store acc somewhere
+            load aTile G2S
+            load bTile
+
+            mult_last = gamma * k_dim
+            acc *= exp(mult_last)
+            load aTile S2R
+            for row in aTile:
+                multiply aTile[row] by exp(mult_last - gamma * (row+1)) # so last row the subtraction will be 0
+            acc += aTile @ bTile
+        store the last thing(?)
+        """
+        SharedStorage = type('SharedStorage', (), dict())
+        SharedStorage.__annotations__['Ks_ptr'] = shared.memrange(self.dtype, Ks_layout, 1024)
+        SharedStorage.__annotations__['Vs_ptr'] = shared.memrange(self.dtype, Vs_layout, 1024)
+        SharedStorage.__annotations__['pipe_ptr'] = cute.struct.MemRange[cutlass.Int64, self.stages * 2]
+
+        smem_allocator_ = cutlass.utils.SmemAllocator()
+        smem__ = smem_allocator_.allocate(cute.struct(SharedStorage))
+        Ks = shared.smem_get_tensor(smem__, 'Ks_ptr', Ks_layout)
+        Vs = shared.smem_get_tensor(smem__, 'Vs_ptr', Vs_layout)
+        # TODO we need epi smem
+
+        pipe = my_pipeline.make_tma_pipeline(
+            smem__.pipea_ptr.data_ptr(), 
+            self.stages, 
+            num_consumer_warps=self.num_mma_wgs * 4,
+            num_bytes=...) # TODO
+
+        warp_idx = cute.arch.make_warp_uniform(cute.arch.warp_idx())
+        tidx, _, _ = cute.arch.thread_idx()
+
+        # TODO populate shared storage, allocate and get
+        # TODO get pipelines
+
+        scheduler = ...
+
+        # NOTE tile coord mnkl will be bh00 for now
+        # Later, we will change to bh(start_k, end_k)
+        if ...: # CONSUMER
+            cute.arch.setmaxregister_increase(...)
+            work_tile = scheduler.initial_work_tile_info()
+            while work_tile.is_valid_tile:
+                tile_coord = work_tile.tile_idx
+                # MMA
+                # EPI
+                ...
+                scheduler.fetch_next_work()
+                scheduler.advance_to_next_work()
+                work_tile = scheduler.get_current_work()
+        if ...: # PRODUCER
+            cute.arch.setmaxregister_decrease(...)
+            work_tile = scheduler.initial_work_tile_info()
+            while work_tile.is_valid_tile:
+                tile_coord = work_tile.tile_idx
+                # LOAD
+                ...
+                scheduler.fetch_next_work()
+                scheduler.advance_to_next_work()
+                work_tile = scheduler.get_current_work()
+
 
 class GemmSM90:
     def __init__(

@@ -1,4 +1,4 @@
-from gemm import *
+from fused_kernels_cutedsl.linear_attn.attempt1.gemm_attempt_1 import *
 from profile_utils import run_experiment, get_args
 
 if __name__ == "__main__":

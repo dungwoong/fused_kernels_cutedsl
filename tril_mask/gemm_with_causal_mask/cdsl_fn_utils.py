@@ -1,38 +1,25 @@
 import torch
-import functools
+import cutlass
+from cutlass import cute
 from cutlass.cute.runtime import from_dlpack
 import cuda.bindings.driver as cuda
 from typing import Optional
 
 import cutlass.cute as cute
 
+"""
+Utility functions for compiling cuteDSL kernels.
+
+Currently, two options are:
+- pass in sample tensors using convert_from_dlpack with sample inputs
+- create faketensors
+compile_cutedsl uses the first strategy
+"""
+
 STREAM = cuda.CUstream(torch.cuda.current_stream().cuda_stream)
 
-def jit_cache(fn):
-    cache = dict()
-
-    @functools.wraps(fn)
-    def wrapper(*args, **kwargs):
-        key = args + tuple(sorted(kwargs.items())) if kwargs else args
-        if key in cache:
-            return cache[key]
-        
-        compiled_fn = fn(*args, **kwargs)
-        cache[key] = compiled_fn
-        return compiled_fn
-    
-    wrapper.cache = cache
-    return wrapper
-
-
-# convert_from_dlpack = lambda tensor: (
-#         from_dlpack(tensor.detach(), assumed_align=16)
-#     )
-
 convert_from_dlpack = lambda tensor: (
-        from_dlpack(tensor.detach(), assumed_align=16).mark_compact_shape_dynamic(
-            mode=0, stride_order=(0, 1)
-        )
+        from_dlpack(tensor.detach(), assumed_align=16)
     )
 
 def make_fake_tensor(dtype, shape, divisibility=1, leading_dim=-1) -> Optional[cute.Tensor]:
@@ -47,3 +34,13 @@ def make_fake_tensor(dtype, shape, divisibility=1, leading_dim=-1) -> Optional[c
     return cute.runtime.make_fake_tensor(
         dtype, shape, stride=stride, assumed_align=divisibility * dtype.width // 8
     )
+
+def compile_cutedsl(tensors, kernel):
+    cute_tensors = [convert_from_dlpack(t) for t in tensors]
+    compiled = cute.compile(kernel, *cute_tensors, STREAM, options='--enable-tvm-ffi')
+    return compiled
+
+def compile_cutedsl_no_stream(tensors, kernel):
+    cute_tensors = [convert_from_dlpack(t) for t in tensors]
+    compiled = cute.compile(kernel, *cute_tensors, options='--enable-tvm-ffi')
+    return compiled

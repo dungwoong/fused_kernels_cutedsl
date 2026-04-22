@@ -17,7 +17,7 @@ import io
 import sys
 import traceback
 
-from gemm import GemmSM90
+from fused_kernels_cutedsl.linear_attn.attempt1.gemm_attempt_1 import GemmSM90
 
 torch.manual_seed(42)
 

@@ -1,3 +1,5 @@
+Not finished
+
 # Test workloads
 - In the GLA paper they go up to 2^15 which is ~30k tokens
 - Wait, if you have evenly spaced chunks, then the actual causal mask is no problem. Workloads will be distributed evenly and it's a simple gemm operation
