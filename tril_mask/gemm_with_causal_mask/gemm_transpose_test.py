@@ -41,7 +41,7 @@ class Kernel:
         self.kernel(A_g2s_atom, A_g2s_tensor, B_g2s_atom, B_g2s_tensor, tiled_gemm, As_layout, Bs_layout).launch(grid=[1, 1, 1], block=[(self.consumer_wgs + 1) * 128])
     
     @cute.kernel
-    def kernel(self, A_g2s_atom: cute.TiledCopy, A_g2s_tensor: cute.Tensor, B_g2s_atom: cute.TiledCopy, B_g2s_tensor: cute.Tensor, tiled_gemm: cute.TiledMma, As_layout: cute.ComposedLayout, Bs_layout: cute.ComposedLayout):
+    def kernel(self, A_g2s_atom: cute.CopyAtom, A_g2s_tensor: cute.Tensor, B_g2s_atom: cute.CopyAtom, B_g2s_tensor: cute.Tensor, tiled_gemm: cute.TiledMma, As_layout: cute.ComposedLayout, Bs_layout: cute.ComposedLayout):
         warp_idx = cute.arch.make_warp_uniform(cute.arch.warp_idx())
         tidx, _, _ = cute.arch.thread_idx()
         bidx, bidy, _ = cute.arch.block_idx()
@@ -66,7 +66,7 @@ class Kernel:
             num_bytes=n_bytes
         )
 
-        sliced_A = cute.local_tile(A_g2s_atom, (self.tile_n, self.tile_k), (0, None))
+        sliced_A = cute.local_tile(A_g2s_tensor, (self.tile_n, self.tile_k), (0, None))
         k_iters = cute.size(sliced_A, mode=[2])
 
         if (warp_idx < self.consumer_warps): # CONSUMER
@@ -91,6 +91,7 @@ class Kernel:
 
 
 if __name__ == '__main__':
+    print('staerting...')
     # Compute (BtAt)t
     m, n, k = 16, 128, 128
     a = torch.randn((m, k), dtype=torch.bfloat16).to('cuda')
