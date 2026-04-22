@@ -14,7 +14,7 @@ B: 128x128
 
 compute (BtAt)t = m128n16k128 --> (16,128)
 
-this version just computes it and dumps the output to GMEM. Still need to transpose in SMEM
+we'll try to stmatrix transposed
 """
 
 EPI_BAR = 1
@@ -40,6 +40,12 @@ def get_epi_tensor_atom(t: cute.Tensor, epi_smem_layout_staged: cute.ComposedLay
     )
     return tma_atom, tma_tensor
 
+def transpose_view(a: cute.Tensor) -> cute.Tensor:
+    """Transpose the first two dimensions of a tensor on smem."""
+    shape = (a.shape[1], a.shape[0], *a.shape[2:])
+    order = (1, 0, *range(2, cute.rank(a)))
+    return cute.composition(a, cute.make_ordered_layout(shape, order=order))
+
 
 class Kernel:
     def __init__(self):
@@ -59,7 +65,7 @@ class Kernel:
         print(B)
         As_layout = shared.get_smem_layout_row_major(cutlass.BFloat16, self.tile_n, self.tile_k, self.stages)
         Bs_layout = shared.get_smem_layout_row_major(cutlass.BFloat16, self.tile_m, self.tile_k, self.stages)
-        epi_layout = shared.get_smem_layout_row_major(cutlass.BFloat16, self.tile_m, self.tile_n, 1)
+        epi_layout = shared.get_smem_layout_row_major(cutlass.BFloat16, self.tile_n, self.tile_m, 1) # NOTE TRANSPOSED
 
         # Let's just say there's only one block to work on
         tiled_gemm = mma.get_tiled_mma(self.dtype, True, True, self.acc_dtype, self.tile_m, self.tile_n)
@@ -68,7 +74,7 @@ class Kernel:
         
         A_g2s_atom, A_g2s_tensor = shared.get_tma_tensor_and_atom(A, As_layout, self.tile_n, self.tile_k)
         B_g2s_atom, B_g2s_tensor = shared.get_tma_tensor_and_atom(B, Bs_layout, self.tile_m, self.tile_k)
-        C_s2g_atom, C_s2g_tensor = get_epi_tensor_atom(C, epi_layout, (self.tile_m, self.tile_n))
+        C_s2g_atom, C_s2g_tensor = get_epi_tensor_atom(C, epi_layout, (self.tile_n, self.tile_m))
 
         self.kernel(A_g2s_atom, A_g2s_tensor, B_g2s_atom, B_g2s_tensor, C_s2g_atom, C_s2g_tensor, epi_layout, tiled_gemm, As_layout, Bs_layout).launch(grid=[1, 1, 1], block=[(self.consumer_wgs + 1) * 128], stream=stream)
     
@@ -120,16 +126,17 @@ class Kernel:
             rO.store(acc.load().to(self.dtype))
 
             Cs_slice = Cs[None, None, 0]
-            copy_atom_C = my_utils.get_smem_store_atom(90, self.dtype, False)
+            Cs_slice_t = transpose_view(Cs_slice)
+            copy_atom_C = my_utils.get_smem_store_atom(90, self.dtype, True)
             thr_copy_r2s = cute.make_tiled_copy_C(copy_atom_C, tiled_gemm).get_slice(tidx)
             # for now, let's say we're computing AtBt
-            r2s_s = thr_copy_r2s.partition_D(Cs_slice)
+            r2s_s = thr_copy_r2s.partition_D(Cs_slice_t)
             r2s_r = thr_copy_r2s.retile(rO)
             cute.copy(copy_atom_C, r2s_r, r2s_s)
             cute.arch.fence_proxy(cute.arch.ProxyKind.async_shared, space=cute.arch.SharedSpace.shared_cta)
             cute.arch.barrier_arrive(barrier_id=EPI_BAR, number_of_threads=(self.consumer_warps*32) + 32)
 
-            gO = cute.local_tile(C_s2g_tensor, (self.tile_m, self.tile_n), (bidy, bidx))
+            gO = cute.local_tile(C_s2g_tensor, (self.tile_n, self.tile_m), (bidx, bidy)) # TODO coords are prolly off
             store_O, _, _ = my_utils.tma_get_copy_fn(
                 C_s2g_atom, 0, cute.make_layout(1), Cs_slice, gO, single_stage=True
             )
@@ -157,10 +164,10 @@ if __name__ == '__main__':
     m, n, k = 16, 128, 128
     a = torch.randn((m, k), dtype=torch.bfloat16).to('cuda')
     b = torch.randn((n, k), dtype=torch.bfloat16).to('cuda')
-    expected = b @ a.t()
+    expected = (b @ a.t()).t()
 
     # should be m, n but ok
-    c = torch.zeros((n, m), dtype=torch.bfloat16).to('cuda')
+    c = torch.zeros((m, n), dtype=torch.bfloat16).to('cuda')
 
     kernel = Kernel()
     compiled_kernel = compile_cutedsl((a, b, c), kernel)

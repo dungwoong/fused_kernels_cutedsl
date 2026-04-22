@@ -30,3 +30,6 @@ a_regs_mma: tensor<ptr<bf16, rmem, align<32>> o ((2,2,2),1,4):((1,2,4),0,8)>
 - `a_regs` is from the ldmatrix so the 8 is for the entire 16x16 and the 4 makes it `16 x 64`
 - in `a_regs_mma` they change it to (2, 2, 2)
 - ok well now we know what to target, I feel like we should probably target a_regs since what if the user wants to store back to smem or something?
+
+# Debugging
+- if you get an unspecified launch failure: one thing you can look at is whether you're advancing your states...
